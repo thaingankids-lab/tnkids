@@ -131,7 +131,7 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
       <head>
         <meta charset="UTF-8" />
         <style>
-          @page { margin: 0.45in; }
+          @page { size: landscape; margin: 0.35in; }
           html, body {
             margin: 0;
             padding: 0;
@@ -166,9 +166,10 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
           }
           th, td {
             border: 1px solid #555;
-            padding: 6px 6px;
+            padding: 7px 8px;
             vertical-align: middle;
             mso-border-alt: solid #555 .75pt;
+            line-height: 1.35;
           }
           th {
             font-weight: bold;
@@ -205,15 +206,15 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
         <p class="customer"><b>Điện thoại:</b> ${escapeHtml(invoice.customer_phone_snapshot || '')}</p>
         <table>
           <colgroup>
-            <col style="width: 42px;" />
-            <col style="width: 145px;" />
-            <col style="width: 68px;" />
-            <col style="width: 64px;" />
-            <col style="width: 72px;" />
-            <col style="width: 54px;" />
-            <col style="width: 92px;" />
-            <col style="width: 104px;" />
-            <col style="width: 98px;" />
+            <col style="width: 48px;" />
+            <col style="width: 220px;" />
+            <col style="width: 82px;" />
+            <col style="width: 78px;" />
+            <col style="width: 76px;" />
+            <col style="width: 62px;" />
+            <col style="width: 112px;" />
+            <col style="width: 128px;" />
+            <col style="width: 110px;" />
           </colgroup>
           <thead>
             <tr>
@@ -276,23 +277,24 @@ export const downloadInvoicePdf = async (invoice: InvoiceExportData, elementId =
     importFromUrl('https://esm.sh/jspdf@4.2.1')
   ]);
 
-  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pdf = new jsPDF('l', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 8;
   const imageWidth = pageWidth - margin * 2;
+  const captureWidth = 1123;
 
   const captureHost = document.createElement('div');
   captureHost.style.position = 'fixed';
   captureHost.style.left = '-10000px';
   captureHost.style.top = '0';
-  captureHost.style.width = '794px';
+  captureHost.style.width = `${captureWidth}px`;
   captureHost.style.background = '#ffffff';
   captureHost.style.zIndex = '-1';
 
   const printableClone = element.cloneNode(true) as HTMLElement;
-  printableClone.style.width = '794px';
-  printableClone.style.maxWidth = '794px';
+  printableClone.style.width = `${captureWidth}px`;
+  printableClone.style.maxWidth = `${captureWidth}px`;
   printableClone.style.minHeight = '0';
   printableClone.style.margin = '0';
   printableClone.style.transform = 'none';
@@ -308,7 +310,7 @@ export const downloadInvoicePdf = async (invoice: InvoiceExportData, elementId =
       scale: 2,
       backgroundColor: '#ffffff',
       useCORS: true,
-      windowWidth: 794,
+      windowWidth: captureWidth,
       scrollX: 0,
       scrollY: 0
     });
