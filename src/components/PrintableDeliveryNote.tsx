@@ -141,6 +141,8 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
       className="bg-white text-black mx-auto max-w-[210mm] font-sans text-[12px] leading-snug"
       style={{
         fontFamily: 'Arial, Tahoma, "Segoe UI", sans-serif',
+        width: '210mm',
+        maxWidth: '100%',
         padding: '12mm 10mm',
         boxSizing: 'border-box'
       }}
