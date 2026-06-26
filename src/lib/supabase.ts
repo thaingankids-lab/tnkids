@@ -275,6 +275,128 @@ CREATE TRIGGER sync_inventory_product_code_trigger
 AFTER UPDATE OF code ON products
 FOR EACH ROW EXECUTE FUNCTION sync_inventory_product_code();
 
+-- 9. RPC cộng/trừ kho theo transaction server-side
+CREATE OR REPLACE FUNCTION decrement_inventory_stock(p_adjustments JSONB)
+RETURNS VOID AS $$
+DECLARE
+  item JSONB;
+  v_batch_id UUID;
+  v_quantity INTEGER;
+  v_current_quantity INTEGER;
+  v_label TEXT;
+BEGIN
+  IF p_adjustments IS NULL OR jsonb_typeof(p_adjustments) <> 'array' THEN
+    RAISE EXCEPTION 'Danh sách trừ kho không hợp lệ.';
+  END IF;
+
+  FOR item IN SELECT * FROM jsonb_array_elements(p_adjustments)
+  LOOP
+    v_batch_id := (item->>'batch_id')::UUID;
+    v_quantity := COALESCE((item->>'quantity')::INTEGER, 0);
+
+    IF v_quantity <= 0 THEN
+      RAISE EXCEPTION 'Số lượng trừ kho phải lớn hơn 0.';
+    END IF;
+
+    SELECT quantity, product_code || ' - màu ' || color || ' - size ' || size
+    INTO v_current_quantity, v_label
+    FROM inventory_batches
+    WHERE id = v_batch_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Không tìm thấy dòng tồn kho %.', v_batch_id;
+    END IF;
+
+    IF v_current_quantity < v_quantity THEN
+      RAISE EXCEPTION 'Không đủ tồn kho cho %. Hiện còn %, cần %.', v_label, v_current_quantity, v_quantity;
+    END IF;
+
+    UPDATE inventory_batches
+    SET quantity = v_current_quantity - v_quantity
+    WHERE id = v_batch_id;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION increment_inventory_stock(p_items JSONB)
+RETURNS VOID AS $$
+DECLARE
+  item JSONB;
+  v_product_id UUID;
+  v_product_code TEXT;
+  v_color TEXT;
+  v_size_set_id UUID;
+  v_size TEXT;
+  v_quantity INTEGER;
+  v_unit_type TEXT;
+  v_note TEXT;
+  v_existing_id UUID;
+  v_existing_quantity INTEGER;
+BEGIN
+  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' THEN
+    RAISE EXCEPTION 'Danh sách nhập kho không hợp lệ.';
+  END IF;
+
+  FOR item IN SELECT * FROM jsonb_array_elements(p_items)
+  LOOP
+    v_product_id := (item->>'product_id')::UUID;
+    v_product_code := trim(item->>'product_code');
+    v_color := trim(item->>'color');
+    v_size_set_id := NULLIF(item->>'size_set_id', '')::UUID;
+    v_size := trim(item->>'size');
+    v_quantity := COALESCE((item->>'quantity')::INTEGER, 0);
+    v_unit_type := trim(item->>'unit_type');
+    v_note := NULLIF(trim(COALESCE(item->>'note', '')), '');
+
+    IF v_product_id IS NULL OR v_product_code = '' OR v_color = '' OR v_size = '' OR v_quantity <= 0 THEN
+      RAISE EXCEPTION 'Dòng nhập kho không hợp lệ.';
+    END IF;
+
+    SELECT id, quantity
+    INTO v_existing_id, v_existing_quantity
+    FROM inventory_batches
+    WHERE product_id = v_product_id
+      AND lower(trim(color)) = lower(v_color)
+      AND lower(trim(size)) = lower(v_size)
+      AND COALESCE(size_set_id, '00000000-0000-0000-0000-000000000000'::uuid)
+        = COALESCE(v_size_set_id, '00000000-0000-0000-0000-000000000000'::uuid)
+    FOR UPDATE;
+
+    IF FOUND THEN
+      UPDATE inventory_batches
+      SET quantity = v_existing_quantity + v_quantity,
+          unit_type = COALESCE(NULLIF(v_unit_type, ''), unit_type),
+          note = COALESCE(v_note, note)
+      WHERE id = v_existing_id;
+    ELSE
+      INSERT INTO inventory_batches (
+        product_id,
+        product_code,
+        color,
+        size_set_id,
+        size,
+        quantity,
+        unit_type,
+        note
+      ) VALUES (
+        v_product_id,
+        v_product_code,
+        v_color,
+        v_size_set_id,
+        v_size,
+        v_quantity,
+        COALESCE(NULLIF(v_unit_type, ''), 'Ri'),
+        v_note
+      );
+    END IF;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+GRANT EXECUTE ON FUNCTION decrement_inventory_stock(JSONB) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION increment_inventory_stock(JSONB) TO anon, authenticated;
+
 -- Reload schema cache
 notify pgrst, 'reload schema';
 `;
