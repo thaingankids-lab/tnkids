@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { Invoice } from '../types';
 import PrintableDeliveryNote from './PrintableDeliveryNote';
+import { downloadInvoiceExcel } from '../lib/invoiceExport';
 import { 
   History, 
   Search, 
@@ -13,7 +14,8 @@ import {
   Loader2, 
   AlertTriangle, 
   RefreshCw,
-  Eye
+  Eye,
+  FileSpreadsheet
 } from 'lucide-react';
 
 export default function TodayInvoicesModule() {
@@ -717,7 +719,13 @@ export default function TodayInvoicesModule() {
                       onClick={handlePrint}
                       className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all cursor-pointer"
                     >
-                      <Printer className="h-3.5 w-3.5" /> In phiếu
+                      <Printer className="h-3.5 w-3.5" /> Lưu PDF
+                    </button>
+                    <button
+                      onClick={() => downloadInvoiceExcel(selectedInvoice)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all cursor-pointer"
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5" /> Lưu Excel
                     </button>
                   </>
                 ) : (

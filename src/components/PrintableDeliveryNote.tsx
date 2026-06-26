@@ -130,7 +130,11 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
   const totalPayment = Number(invoice.total_amount || 0) + oldDebt;
 
   return (
-    <div id="print-area" className="bg-white text-black mx-auto p-4 max-w-[210mm] font-serif text-[12px] leading-snug">
+    <div
+      id="print-area"
+      className="bg-white text-black mx-auto p-4 max-w-[210mm] font-sans text-[12px] leading-snug"
+      style={{ fontFamily: 'Arial, Tahoma, "Segoe UI", sans-serif' }}
+    >
       <div className="text-center mb-2">
         <h1 className="text-[16px] font-bold uppercase leading-tight">PHIẾU GIAO HÀNG</h1>
         <p className="mt-1">Mã HĐ: {invoice.invoice_code}</p>

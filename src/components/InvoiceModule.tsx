@@ -14,8 +14,10 @@ import {
   Loader2, 
   ChevronRight,
   ShoppingBag,
-  DollarSign
+  DollarSign,
+  FileSpreadsheet
 } from 'lucide-react';
+import { downloadInvoiceExcel } from '../lib/invoiceExport';
 
 interface CartItem {
   id: string; // unique local cart item id
@@ -84,6 +86,31 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
 
   // Success printing state
   const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
+
+  const findSizeSetByKeyword = (keywords: string[]) => {
+    return sizeSets.find(set => {
+      const name = String(set.name || '').toLocaleLowerCase('vi-VN');
+      return keywords.some(keyword => name.includes(keyword));
+    });
+  };
+
+  const getExpectedRiSizes = () => {
+    if (entryMode === 'ri_nhi') {
+      const riNhiSet = findSizeSetByKeyword(['nhí', 'nhi']);
+      return riNhiSet?.sizes || ['3', '4', '5', '6', '7', '8', '9', '10'];
+    }
+
+    if (entryMode === 'ri_dai') {
+      const riDaiSet = findSizeSetByKeyword(['đại', 'dai']);
+      return riDaiSet?.sizes || ['11', '12', '13', '14', '15', '16'];
+    }
+
+    if (entryMode === 'ri_set' && selectedSizeSetId) {
+      return sizeSets.find(set => set.id === selectedSizeSetId)?.sizes || [];
+    }
+
+    return [];
+  };
 
   const fetchData = async () => {
     try {
@@ -276,48 +303,52 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
       return;
     }
 
-    // Validate full Ri group availability and check for missing/insufficient sizes
-    if (entryMode === 'ri_set' && selectedSizeSetId) {
-      const activeSet = sizeSets.find(s => s.id === selectedSizeSetId);
-      if (activeSet) {
-        const missingSizes: string[] = [];
-        const insufficientSizes: { size: string; req: number; av: number }[] = [];
+    // Missing sizes can be intentional (not produced), so only insufficient stocked sizes block the sale.
+    if (entryMode !== 'single') {
+      const expectedSizes = getExpectedRiSizes();
+      const missingSizes: string[] = [];
+      const insufficientSizes: { size: string; req: number; av: number }[] = [];
 
-        activeSet.sizes.forEach((sz: string) => {
-          const sizeTrimmed = sz.trim();
-          const stockInfo = availableSizesForColor.find(s => s.size.trim() === sizeTrimmed);
-          const reqQty = riMultiplier;
+      expectedSizes.forEach((sz: string) => {
+        const sizeTrimmed = sz.trim();
+        const stockInfo = availableSizesForColor.find(s => s.size.trim() === sizeTrimmed);
+        const reqQty = riMultiplier;
 
-          if (!stockInfo || stockInfo.quantity <= 0) {
-            missingSizes.push(sizeTrimmed);
-          } else {
-            const existingInCart = cart
-              .filter(item => item.batch_id === stockInfo.batch_id)
-              .reduce((sum, item) => sum + item.quantity, 0);
-
-            if (reqQty + existingInCart > stockInfo.quantity) {
-              insufficientSizes.push({
-                size: sizeTrimmed,
-                req: reqQty + existingInCart,
-                av: stockInfo.quantity
-              });
-            }
-          }
-        });
-
-        if (missingSizes.length > 0 || insufficientSizes.length > 0) {
-          let errMsg = `Sản phẩm không đủ tồn kho để bán nguyên Ri "${activeSet.name}".\n`;
-          if (missingSizes.length > 0) {
-            errMsg += `- Thiếu hẳn các Size (Hết hàng/Không có tồn): ${missingSizes.join(', ')}\n`;
-          }
-          if (insufficientSizes.length > 0) {
-            insufficientSizes.forEach(item => {
-              errMsg += `- Size ${item.size} cần ${item.req} cái nhưng chỉ còn ${item.av} cái trong kho.\n`;
-            });
-          }
-          alert(errMsg);
+        if (!stockInfo || stockInfo.quantity <= 0) {
+          missingSizes.push(sizeTrimmed);
           return;
         }
+
+        const existingInCart = cart
+          .filter(item => item.batch_id === stockInfo.batch_id)
+          .reduce((sum, item) => sum + item.quantity, 0);
+
+        if (reqQty + existingInCart > stockInfo.quantity) {
+          insufficientSizes.push({
+            size: sizeTrimmed,
+            req: reqQty + existingInCart,
+            av: stockInfo.quantity
+          });
+        }
+      });
+
+      if (insufficientSizes.length > 0) {
+        let errMsg = 'Một số size có trong kho nhưng không đủ số lượng để bán:\n';
+        insufficientSizes.forEach(item => {
+          errMsg += `- Size ${item.size} cần ${item.req} cái nhưng chỉ còn ${item.av} cái trong kho.\n`;
+        });
+        alert(errMsg);
+        return;
+      }
+
+      if (missingSizes.length > 0) {
+        const label = selectedRiSummary?.label || 'Ri đã chọn';
+        const ok = window.confirm(
+          `${label} đang không có các size: ${missingSizes.join(', ')}.\n` +
+          'Có thể đây là size không sản xuất hoặc chưa nhập kho.\n\n' +
+          'Bạn có muốn tiếp tục bán các size đang có hàng không?'
+        );
+        if (!ok) return;
       }
     }
 
@@ -1102,7 +1133,13 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                   onClick={handlePrint}
                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all cursor-pointer"
                 >
-                  <Printer className="h-3.5 w-3.5" /> In phiếu giao hàng
+                  <Printer className="h-3.5 w-3.5" /> Lưu PDF
+                </button>
+                <button
+                  onClick={() => downloadInvoiceExcel(createdInvoice)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" /> Lưu Excel
                 </button>
                 <button
                   onClick={() => setCreatedInvoice(null)}
