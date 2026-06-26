@@ -226,6 +226,46 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
     }));
   };
 
+  const selectedRiSummary = useMemo(() => {
+    if (entryMode === 'single') return null;
+
+    let label = 'Ri nhóm';
+    let sizesInGroup = availableSizesForColor;
+
+    if (entryMode === 'ri_nhi') {
+      label = 'Ri nhí';
+      sizesInGroup = availableSizesForColor.filter(size => size.unit_type === 'Ri nhí');
+    } else if (entryMode === 'ri_dai') {
+      label = 'Ri đại';
+      sizesInGroup = availableSizesForColor.filter(size => size.unit_type === 'Ri đại');
+    } else if (entryMode === 'ri_set' && selectedSizeSetId) {
+      const activeSet = sizeSets.find(set => set.id === selectedSizeSetId);
+      label = activeSet?.name || 'Ri nhóm';
+      sizesInGroup = activeSet
+        ? availableSizesForColor.filter(size => activeSet.sizes.some((setSize: string) => setSize.trim() === size.size.trim()))
+        : [];
+    }
+
+    const sortedSizes = [...sizesInGroup].sort((a, b) => {
+      const numA = parseInt(a.size, 10);
+      const numB = parseInt(b.size, 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.size.localeCompare(b.size);
+    });
+
+    const maxRi = sortedSizes.length > 0 ? Math.min(...sortedSizes.map(size => size.quantity)) : 0;
+    const totalPieces = sortedSizes.length * riMultiplier;
+    const price = parseInt(itemPrice, 10) || 0;
+
+    return {
+      label,
+      sizes: sortedSizes,
+      maxRi,
+      totalPieces,
+      estimatedTotal: totalPieces * price
+    };
+  }, [entryMode, selectedSizeSetId, availableSizesForColor, sizeSets, riMultiplier, itemPrice]);
+
   const addToCart = () => {
     const prod = products.find(p => p.id === selectedProductId);
     const price = parseInt(itemPrice, 10);
@@ -842,26 +882,12 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                 </div>
 
                 {/* Sizes List with quantities */}
-                <div className="space-y-1.5">
-                  <span className="font-semibold text-slate-600 block">Số lượng cần bán theo từng Size:</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {availableSizesForColor.map(s => {
-                      let isDisabled = false;
-                      if (entryMode === 'ri_nhi' && s.unit_type !== 'Ri nhí') {
-                        isDisabled = true;
-                      } else if (entryMode === 'ri_dai' && s.unit_type !== 'Ri đại') {
-                        isDisabled = true;
-                      } else if (entryMode === 'ri_set') {
-                        const activeSet = sizeSets.find(set => set.id === selectedSizeSetId);
-                        isDisabled = activeSet 
-                          ? !activeSet.sizes.some((sz: string) => sz.trim() === s.size.trim()) 
-                          : true;
-                      }
-
-                      return (
-                        <div key={s.size} className={`flex items-center justify-between p-2 rounded-xl border ${
-                          isDisabled ? 'bg-slate-50 border-slate-100 opacity-40' : 'bg-slate-50/50 border-slate-200'
-                        }`}>
+                {entryMode === 'single' ? (
+                  <div className="space-y-1.5">
+                    <span className="font-semibold text-slate-600 block">Số lượng cần bán theo từng Size:</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {availableSizesForColor.map(s => (
+                        <div key={s.size} className="flex items-center justify-between p-2 rounded-xl border bg-slate-50/50 border-slate-200">
                           <div className="space-y-0.5">
                             <span className="font-mono font-bold text-slate-800 text-xs">Sz {s.size}</span>
                             <span className="text-[10px] text-slate-400 block">Tồn: {s.quantity} cái</span>
@@ -869,17 +895,51 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                           <input
                             type="number"
                             min="0"
-                            disabled={isDisabled}
                             value={sizeQuantities[s.size] || ''}
                             onChange={(e) => handleSizeQtyChange(s.size, e.target.value)}
                             placeholder="0"
                             className="w-14 bg-white border border-slate-200 rounded-lg py-1 text-center font-mono font-bold text-slate-900 focus:outline-none"
                           />
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : selectedRiSummary && (
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-xs space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="font-bold text-blue-900 block">Đang chọn: {selectedRiSummary.label}</span>
+                        <span className="text-slate-500 block mt-1">
+                          Size trong nhóm: {selectedRiSummary.sizes.map(size => size.size).join(', ') || 'Chưa có tồn kho'}
+                        </span>
+                      </div>
+                      <span className="px-2.5 py-1 bg-white border border-blue-100 rounded-lg font-mono font-black text-blue-700">
+                        {riMultiplier} ri
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="bg-white border border-blue-100 rounded-xl p-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Tối đa bán</span>
+                        <span className="font-mono font-black text-slate-900">{selectedRiSummary.maxRi} ri</span>
+                      </div>
+                      <div className="bg-white border border-blue-100 rounded-xl p-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Tổng cái</span>
+                        <span className="font-mono font-black text-slate-900">{selectedRiSummary.totalPieces}</span>
+                      </div>
+                      <div className="bg-white border border-blue-100 rounded-xl p-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Tạm tính</span>
+                        <span className="font-mono font-black text-slate-900">{formatCurrency(selectedRiSummary.estimatedTotal)}</span>
+                      </div>
+                    </div>
+
+                    {selectedRiSummary.maxRi < riMultiplier && (
+                      <div className="text-red-600 font-semibold bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                        Không đủ tồn kho để lấy {riMultiplier} ri. Nhóm này hiện chỉ đủ tối đa {selectedRiSummary.maxRi} ri.
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Push to cart button */}
                 <button
