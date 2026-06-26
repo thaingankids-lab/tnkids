@@ -125,6 +125,11 @@ const buildSizeLabel = (item: PrintableRow) => {
   return item.sizes.length > 0 ? compactSizeLabel(item.sizes) : '';
 };
 
+const normalizeUnitType = (value?: string) => {
+  if (!value) return 'Ri';
+  return value.replace(/\s*\([^)]*\)\s*/g, '').trim() || 'Ri';
+};
+
 export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNoteProps) {
   const items = groupPrintableItems(invoice.items || invoice.invoice_items || []);
   const oldDebt = 0;
@@ -133,62 +138,69 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
   return (
     <div
       id="print-area"
-      className="bg-white text-black mx-auto p-4 max-w-[210mm] font-sans text-[12px] leading-snug"
-      style={{ fontFamily: 'Arial, Tahoma, "Segoe UI", sans-serif' }}
+      className="bg-white text-black mx-auto max-w-[210mm] font-sans text-[12px] leading-snug"
+      style={{
+        fontFamily: 'Arial, Tahoma, "Segoe UI", sans-serif',
+        padding: '12mm 10mm',
+        boxSizing: 'border-box'
+      }}
     >
       <div className="text-center mb-2">
         <h1 className="text-[16px] font-bold uppercase leading-tight">PHIẾU GIAO HÀNG</h1>
         <p className="mt-1">Mã HĐ: {invoice.invoice_code}</p>
       </div>
 
-      <div className="mb-1.5 space-y-1">
+      <div className="mb-3 space-y-1">
         <p><b>Khách hàng:</b> {invoice.customer_name_snapshot || 'Khách lẻ vãng lai'}</p>
         <p><b>Địa chỉ:</b> {invoice.customer_address_snapshot || ''}</p>
         <p><b>Điện Thoại:</b> {invoice.customer_phone_snapshot || ''}</p>
       </div>
 
-      <table className="w-full border-collapse text-[12px]" style={{ border: '1px solid #555' }}>
+      <table
+        className="w-full border-collapse text-[11px]"
+        style={{ border: '1.5px solid #333', tableLayout: 'fixed' }}
+      >
         <thead>
           <tr>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '46px' }}>STT</th>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555' }}>Tên Hàng</th>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '76px' }}>Màu</th>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '72px' }}>Size</th>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '64px' }}>ĐVT</th>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '82px' }}>SL</th>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '98px' }}>Đơn giá</th>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '98px' }}>Thành tiền</th>
-            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '112px' }}>Ghi chú</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '38px' }}>STT</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '130px' }}>Tên Hàng</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '58px' }}>Màu</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '58px' }}>Size</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '64px' }}>ĐVT</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '52px' }}>SL</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '88px' }}>Đơn giá</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '96px' }}>Thành tiền</th>
+            <th className="text-center font-bold px-1 py-1.5" style={{ border: '1px solid #444', width: '88px' }}>Ghi chú</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, index) => (
             <tr key={`${item.product_code || item.product_name || 'item'}-${index}`}>
-              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{index + 1}</td>
-              <td className="px-1.5 py-1" style={{ border: '1px dotted #777' }}>{buildItemName(item)}</td>
-              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{item.color || ''}</td>
-              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{buildSizeLabel(item)}</td>
-              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{item.unit_type || 'Ri'}</td>
-              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>
+              <td className="text-center px-1 py-1.5 align-middle" style={{ border: '1px solid #777' }}>{index + 1}</td>
+              <td className="px-1.5 py-1.5 align-middle" style={{ border: '1px solid #777' }}>{buildItemName(item)}</td>
+              <td className="text-center px-1 py-1.5 align-middle" style={{ border: '1px solid #777' }}>{item.color || ''}</td>
+              <td className="text-center px-1 py-1.5 align-middle" style={{ border: '1px solid #777', whiteSpace: 'nowrap' }}>{buildSizeLabel(item)}</td>
+              <td className="text-center px-1 py-1.5 align-middle" style={{ border: '1px solid #777', whiteSpace: 'nowrap' }}>{normalizeUnitType(item.unit_type)}</td>
+              <td className="text-center px-1 py-1.5 align-middle font-bold" style={{ border: '1px solid #777' }}>
                 {formatNumber(item.quantityPerSize !== null && item.sizes.length > 1 ? item.quantityPerSize : item.totalPieces)}
               </td>
-              <td className="text-right px-1.5 py-1" style={{ border: '1px dotted #777' }}>{formatNumber(item.unit_price)}</td>
-              <td className="text-right px-1.5 py-1" style={{ border: '1px dotted #777' }}>{formatNumber(item.subtotal)}</td>
-              <td className="px-1 py-1" style={{ border: '1px dotted #777' }}>{item.note || ''}</td>
+              <td className="text-right px-1.5 py-1.5 align-middle" style={{ border: '1px solid #777', whiteSpace: 'nowrap' }}>{formatNumber(item.unit_price)}</td>
+              <td className="text-right px-1.5 py-1.5 align-middle font-bold" style={{ border: '1px solid #777', whiteSpace: 'nowrap' }}>{formatNumber(item.subtotal)}</td>
+              <td className="px-1 py-1.5 align-middle" style={{ border: '1px solid #777' }}>{item.note || ''}</td>
             </tr>
           ))}
 
           <tr>
-            <td colSpan={8} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Cộng tiền hàng</td>
-            <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(invoice.total_amount)}</td>
+            <td colSpan={8} className="text-center px-2 py-1.5" style={{ border: '1.5px solid #333' }}>Cộng tiền hàng</td>
+            <td className="text-right font-bold px-1.5 py-1.5" style={{ border: '1.5px solid #333' }}>{formatNumber(invoice.total_amount)}</td>
           </tr>
           <tr>
-            <td colSpan={8} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Nợ cũ</td>
-            <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(oldDebt)}</td>
+            <td colSpan={8} className="text-center px-2 py-1.5" style={{ border: '1.5px solid #333' }}>Nợ cũ</td>
+            <td className="text-right font-bold px-1.5 py-1.5" style={{ border: '1.5px solid #333' }}>{formatNumber(oldDebt)}</td>
           </tr>
           <tr>
-            <td colSpan={8} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Tổng tiền thanh toán</td>
-            <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(totalPayment)}</td>
+            <td colSpan={8} className="text-center px-2 py-1.5" style={{ border: '1.5px solid #333' }}>Tổng tiền thanh toán</td>
+            <td className="text-right font-bold px-1.5 py-1.5" style={{ border: '1.5px solid #333' }}>{formatNumber(totalPayment)}</td>
           </tr>
         </tbody>
       </table>
