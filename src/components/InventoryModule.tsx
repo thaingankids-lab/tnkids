@@ -58,6 +58,12 @@ export interface ProductCard {
   groups: GroupCard[];
 }
 
+export interface SizeGroupCard {
+  size_set_name: string;
+  totalQuantity: number;
+  colorGroups: GroupCard[];
+}
+
 const getColorBadgeStyle = (color: string) => {
   const c = color.trim().toLowerCase();
   if (c === 'đen' || c === 'black' || c === 'dark') {
@@ -110,6 +116,7 @@ export default function InventoryModule() {
 
   // Tree drill-down states
   const [selectedProductCode, setSelectedProductCode] = useState<string | null>(null);
+  const [selectedSizeGroup, setSelectedSizeGroup] = useState<SizeGroupCard | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<GroupCard | null>(null);
 
   // Custom Deletion Confirmation State
@@ -462,6 +469,36 @@ export default function InventoryModule() {
     return productCards.find(p => p.product_code === selectedProductCode);
   }, [productCards, selectedProductCode]);
 
+  const selectedProductSizeGroups = useMemo<SizeGroupCard[]>(() => {
+    if (!selectedProduct) return [];
+
+    const groupMap: Record<string, SizeGroupCard> = {};
+    selectedProduct.groups.forEach(group => {
+      const key = group.size_set_name || 'Tuỳ chọn';
+      if (!groupMap[key]) {
+        groupMap[key] = {
+          size_set_name: key,
+          totalQuantity: 0,
+          colorGroups: []
+        };
+      }
+
+      groupMap[key].totalQuantity += group.totalQuantity;
+      groupMap[key].colorGroups.push(group);
+    });
+
+    return Object.values(groupMap).sort((a, b) => {
+      const order = (name: string) => {
+        const lower = name.toLowerCase();
+        if (lower.includes('nhí') || lower.includes('nhi')) return 1;
+        if (lower.includes('đại') || lower.includes('dai')) return 2;
+        return 3;
+      };
+
+      return order(a.size_set_name) - order(b.size_set_name) || a.size_set_name.localeCompare(b.size_set_name);
+    });
+  }, [selectedProduct]);
+
   // Product Delete handler with Cascade confirmation
   const handleDeleteProduct = (productCode: string) => {
     setConfirmDelete({
@@ -640,7 +677,11 @@ export default function InventoryModule() {
               {productCards.map((prod) => (
                 <div
                   key={prod.product_code}
-                  onClick={() => setSelectedProductCode(prod.product_code)}
+                  onClick={() => {
+                    setSelectedProductCode(prod.product_code);
+                    setSelectedSizeGroup(null);
+                    setSelectedGroup(null);
+                  }}
                   className="relative overflow-hidden rounded-3xl border border-blue-400 bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-700 p-6 text-white shadow-lg transition-all duration-350 hover:-translate-y-1.5 hover:shadow-2xl hover:border-blue-300 cursor-pointer group flex flex-col justify-between min-h-[290px]"
                 >
                   {/* Decorative ambient glowing circle */}
@@ -693,7 +734,7 @@ export default function InventoryModule() {
 
                       <div className="rounded-xl bg-white/15 p-3 backdrop-blur-xs border border-white/10 flex flex-col justify-between">
                         <div className="text-[10px] font-bold text-blue-100 uppercase tracking-wider">Nhóm Ri</div>
-                        <div className="mt-1 text-xl font-black font-mono">{prod.groups.length}</div>
+                        <div className="mt-1 text-xl font-black font-mono">{new Set(prod.groups.map(group => group.size_set_name)).size}</div>
                         <div className="text-[9px] text-blue-200">nhóm</div>
                       </div>
                     </div>
@@ -729,10 +770,11 @@ export default function InventoryModule() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedProductCode(null);
-                      setSelectedGroup(null);
-                    }}
+                  onClick={() => {
+                    setSelectedProductCode(null);
+                    setSelectedSizeGroup(null);
+                    setSelectedGroup(null);
+                  }}
                     className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-colors flex items-center gap-1"
                   >
                     &larr; Quay lại danh sách
@@ -774,29 +816,29 @@ export default function InventoryModule() {
 
               {selectedProduct ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {selectedProduct.groups.map((group, idx) => {
+                  {selectedProductSizeGroups.map((sizeGroup, idx) => {
                     let bgGradientClass = "bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-600 text-white border-purple-400";
                     let badgeClass = "bg-white/20 text-white border border-white/10 backdrop-blur-xs shadow-xs";
                     let textMutedClass = "text-purple-100";
-                    let colorBadgeClass = "bg-white text-purple-900 border border-purple-200 font-extrabold shadow-sm";
                     
-                    const groupNameLower = group.size_set_name.toLowerCase();
+                    const groupNameLower = sizeGroup.size_set_name.toLowerCase();
                     if (groupNameLower.includes('nhí') || groupNameLower.includes('nhi')) {
                       bgGradientClass = "bg-gradient-to-br from-emerald-500 via-teal-600 to-cyan-600 text-white border-emerald-400";
                       badgeClass = "bg-white/20 text-white border border-white/10 backdrop-blur-xs shadow-xs";
                       textMutedClass = "text-emerald-100";
-                      colorBadgeClass = "bg-white text-emerald-900 border border-emerald-200 font-extrabold shadow-sm";
                     } else if (groupNameLower.includes('đại') || groupNameLower.includes('dai')) {
                       bgGradientClass = "bg-gradient-to-br from-orange-500 via-amber-500 to-red-600 text-white border-orange-400";
                       badgeClass = "bg-white/20 text-white border border-white/10 backdrop-blur-xs shadow-xs";
                       textMutedClass = "text-orange-100";
-                      colorBadgeClass = "bg-white text-orange-900 border border-orange-200 font-extrabold shadow-sm";
                     }
+
+                    const totalSizes = new Set(sizeGroup.colorGroups.flatMap(group => group.sizes.map(size => size.size))).size;
+                    const colorsPreview = sizeGroup.colorGroups.slice(0, 5);
 
                     return (
                       <div
                         key={idx}
-                        onClick={() => setSelectedGroup(group)}
+                        onClick={() => setSelectedSizeGroup(sizeGroup)}
                         className={`relative overflow-hidden p-5 rounded-2xl border ${bgGradientClass} shadow-md hover:-translate-y-1 hover:shadow-xl transition-all duration-200 cursor-pointer flex flex-col justify-between group min-h-[195px]`}
                       >
                         {/* Decorative ambient glowing circle */}
@@ -805,16 +847,35 @@ export default function InventoryModule() {
                         <div className="space-y-4 relative z-10">
                           <div className="flex items-center justify-between">
                             <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-wide uppercase ${badgeClass}`}>
-                              {group.size_set_name}
+                              {sizeGroup.size_set_name}
                             </span>
-                            <span className={`px-2.5 py-0.5 text-[10px] rounded-lg ${colorBadgeClass}`}>
-                              Màu: {group.color}
+                            <span className="px-2.5 py-0.5 text-[10px] rounded-lg bg-white text-slate-900 border border-white/40 font-extrabold shadow-sm">
+                              {sizeGroup.colorGroups.length} màu
                             </span>
                           </div>
 
-                          <div className="pt-1">
-                            <span className={`text-[10px] ${textMutedClass} block font-semibold uppercase tracking-wider`}>Số size trong nhóm</span>
-                            <span className="text-xl font-black">{group.sizes.length} sizes</span>
+                          <div className="grid grid-cols-2 gap-3 pt-1">
+                            <div>
+                              <span className={`text-[10px] ${textMutedClass} block font-semibold uppercase tracking-wider`}>Số size</span>
+                              <span className="text-xl font-black">{totalSizes} sizes</span>
+                            </div>
+                            <div>
+                              <span className={`text-[10px] ${textMutedClass} block font-semibold uppercase tracking-wider`}>Số màu</span>
+                              <span className="text-xl font-black">{sizeGroup.colorGroups.length} màu</span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5">
+                            {colorsPreview.map(group => (
+                              <span key={group.color} className="px-2 py-0.5 rounded-lg bg-white/20 border border-white/15 text-[10px] font-bold">
+                                {group.color}: {group.totalQuantity}
+                              </span>
+                            ))}
+                            {sizeGroup.colorGroups.length > colorsPreview.length && (
+                              <span className="px-2 py-0.5 rounded-lg bg-white/15 border border-white/10 text-[10px] font-bold">
+                                +{sizeGroup.colorGroups.length - colorsPreview.length} màu
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -822,11 +883,11 @@ export default function InventoryModule() {
                           <div className="flex flex-col">
                             <span className={`text-[9px] ${textMutedClass} uppercase font-extrabold tracking-wider`}>Lượng tồn trong Ri</span>
                             <span className="font-mono text-xl font-black">
-                              {group.totalQuantity} <span className="text-xs font-medium opacity-80">cái</span>
+                              {sizeGroup.totalQuantity} <span className="text-xs font-medium opacity-80">cái</span>
                             </span>
                           </div>
                           <span className="group-hover:translate-x-1 transition-transform bg-white/15 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-xs">
-                            Xem chi tiết &rarr;
+                            Xem màu &rarr;
                           </span>
                         </div>
                       </div>
@@ -839,7 +900,89 @@ export default function InventoryModule() {
             </div>
           )}
 
-          {/* Level 3: Sizes List Modal / Drawer */}
+          {/* Level 3: Colors inside selected size group */}
+          {selectedSizeGroup && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-40 p-4 animate-fade-in no-print">
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-scale-in">
+                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 bg-slate-900 text-white font-mono font-black rounded-lg text-xs uppercase tracking-wider">
+                        {selectedProductCode}
+                      </span>
+                      <span className="text-slate-300">/</span>
+                      <span className="text-xs font-extrabold text-slate-700">
+                        Nhóm: {selectedSizeGroup.size_set_name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                      <span>{selectedSizeGroup.colorGroups.length} màu</span>
+                      <span>•</span>
+                      <span className="font-mono font-bold text-slate-900">{selectedSizeGroup.totalQuantity} cái</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedSizeGroup(null)}
+                    className="p-1.5 hover:bg-slate-200 text-slate-400 hover:text-slate-600 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="p-6 overflow-y-auto flex-1 bg-slate-50/30">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {selectedSizeGroup.colorGroups.map((group) => (
+                      <button
+                        type="button"
+                        key={`${group.size_set_name}-${group.color}`}
+                        onClick={() => {
+                          setSelectedSizeGroup(null);
+                          setSelectedGroup(group);
+                        }}
+                        className="text-left bg-white border border-slate-200 hover:border-blue-300 hover:shadow-md rounded-2xl p-4 transition-all cursor-pointer group"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <span className={`inline-flex px-3 py-1 text-[10px] font-bold rounded-lg ${getColorBadgeStyle(group.color)}`}>
+                              Màu: {group.color}
+                            </span>
+                            <p className="text-[11px] text-slate-500 font-semibold mt-3 uppercase">Tổng tồn màu này</p>
+                            <p className="font-mono text-3xl font-black text-slate-900 mt-0.5">
+                              {group.totalQuantity}
+                              <span className="text-xs font-semibold text-slate-400 ml-1">cái</span>
+                            </p>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-black">
+                            {group.sizes.length} size
+                          </span>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-1.5">
+                          {group.sizes.slice(0, 8).map(size => (
+                            <span key={size.inventory_id} className="px-2 py-1 rounded-lg bg-slate-50 border border-slate-100 text-[10px] font-bold text-slate-700">
+                              Sz {size.size}: {size.quantity}
+                            </span>
+                          ))}
+                          {group.sizes.length > 8 && (
+                            <span className="px-2 py-1 rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500">
+                              +{group.sizes.length - 8} size
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-blue-600">
+                          <span>Xem chi tiết size</span>
+                          <span className="group-hover:translate-x-1 transition-transform">&rarr;</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Level 4: Sizes List Modal / Drawer */}
           {selectedGroup && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-40 p-4 animate-fade-in no-print">
               <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-scale-in">
