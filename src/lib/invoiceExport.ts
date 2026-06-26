@@ -108,8 +108,11 @@ export const groupInvoiceItemsForExport = (items: InvoiceExportItem[]): ExportRo
 
 export const buildExportItemName = (item: ExportRow) => {
   const name = item.product_name || item.product_code || 'Hàng hóa';
-  const sizeLabel = item.sizes.length > 0 ? `cỡ ${compactSizeLabel(item.sizes)}` : '';
-  return [name, item.color, sizeLabel].filter(Boolean).join(', ');
+  return name;
+};
+
+export const buildExportSizeLabel = (item: ExportRow) => {
+  return item.sizes.length > 0 ? compactSizeLabel(item.sizes) : '';
 };
 
 export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
@@ -139,6 +142,8 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
             <tr>
               <th>STT</th>
               <th>Tên Hàng</th>
+              <th>Màu</th>
+              <th>Size</th>
               <th>ĐVT</th>
               <th>SL</th>
               <th>Đơn giá</th>
@@ -151,6 +156,8 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
               <tr>
                 <td class="center">${index + 1}</td>
                 <td>${escapeHtml(buildExportItemName(item))}</td>
+                <td class="center">${escapeHtml(item.color || '')}</td>
+                <td class="center">${escapeHtml(buildExportSizeLabel(item))}</td>
                 <td class="center">${escapeHtml(item.unit_type || 'Ri')}</td>
                 <td class="center">${formatNumber(item.quantityPerSize !== null && item.sizes.length > 1 ? item.quantityPerSize : item.totalPieces)}</td>
                 <td class="right">${formatNumber(item.unit_price)}</td>
@@ -158,9 +165,9 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
                 <td>${escapeHtml(item.note || '')}</td>
               </tr>
             `).join('')}
-            <tr><td colspan="6" class="center">Cộng tiền hàng</td><td class="right"><b>${formatNumber(invoice.total_amount)}</b></td></tr>
-            <tr><td colspan="6" class="center">Nợ cũ</td><td class="right"><b>0</b></td></tr>
-            <tr><td colspan="6" class="center">Tổng tiền thanh toán</td><td class="right"><b>${formatNumber(invoice.total_amount)}</b></td></tr>
+            <tr><td colspan="8" class="center">Cộng tiền hàng</td><td class="right"><b>${formatNumber(invoice.total_amount)}</b></td></tr>
+            <tr><td colspan="8" class="center">Nợ cũ</td><td class="right"><b>0</b></td></tr>
+            <tr><td colspan="8" class="center">Tổng tiền thanh toán</td><td class="right"><b>${formatNumber(invoice.total_amount)}</b></td></tr>
           </tbody>
         </table>
         <p class="right">${escapeHtml(formatDate(invoice.sale_date))}</p>
@@ -177,4 +184,58 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+};
+
+export const downloadInvoicePdf = async (invoice: InvoiceExportData, elementId = 'print-area') => {
+  const element = document.getElementById(elementId);
+  if (!element) {
+    alert('Không tìm thấy mẫu hóa đơn để lưu PDF.');
+    return;
+  }
+
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import('html2canvas'),
+    import('jspdf')
+  ]);
+
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    backgroundColor: '#ffffff',
+    useCORS: true
+  });
+
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 8;
+  const imageWidth = pageWidth - margin * 2;
+  const imageHeight = (canvas.height * imageWidth) / canvas.width;
+
+  let remainingHeight = imageHeight;
+  let sourceY = 0;
+  const pageImageHeight = pageHeight - margin * 2;
+
+  while (remainingHeight > 0) {
+    const sliceHeightPx = Math.min(
+      canvas.height - sourceY,
+      Math.floor((pageImageHeight * canvas.width) / imageWidth)
+    );
+    const pageCanvas = document.createElement('canvas');
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeightPx;
+
+    const context = pageCanvas.getContext('2d');
+    if (!context) return;
+    context.drawImage(canvas, 0, sourceY, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+
+    const pageData = pageCanvas.toDataURL('image/png');
+    const pageSliceHeight = (sliceHeightPx * imageWidth) / canvas.width;
+    pdf.addImage(pageData, 'PNG', margin, margin, imageWidth, pageSliceHeight);
+
+    sourceY += sliceHeightPx;
+    remainingHeight -= pageSliceHeight;
+    if (remainingHeight > 0) pdf.addPage();
+  }
+
+  pdf.save(`${invoice.invoice_code || 'hoa-don'}.pdf`);
 };
