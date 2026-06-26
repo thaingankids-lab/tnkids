@@ -276,17 +276,46 @@ export const downloadInvoicePdf = async (invoice: InvoiceExportData, elementId =
     importFromUrl('https://esm.sh/jspdf@4.2.1')
   ]);
 
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    backgroundColor: '#ffffff',
-    useCORS: true
-  });
-
   const pdf = new jsPDF('p', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 8;
   const imageWidth = pageWidth - margin * 2;
+
+  const captureHost = document.createElement('div');
+  captureHost.style.position = 'fixed';
+  captureHost.style.left = '-10000px';
+  captureHost.style.top = '0';
+  captureHost.style.width = '794px';
+  captureHost.style.background = '#ffffff';
+  captureHost.style.zIndex = '-1';
+
+  const printableClone = element.cloneNode(true) as HTMLElement;
+  printableClone.style.width = '794px';
+  printableClone.style.maxWidth = '794px';
+  printableClone.style.minHeight = '0';
+  printableClone.style.margin = '0';
+  printableClone.style.transform = 'none';
+  printableClone.style.background = '#ffffff';
+  printableClone.style.boxSizing = 'border-box';
+
+  captureHost.appendChild(printableClone);
+  document.body.appendChild(captureHost);
+
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = await html2canvas(printableClone, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      windowWidth: 794,
+      scrollX: 0,
+      scrollY: 0
+    });
+  } finally {
+    document.body.removeChild(captureHost);
+  }
+
   const imageHeight = (canvas.height * imageWidth) / canvas.width;
 
   let remainingHeight = imageHeight;
