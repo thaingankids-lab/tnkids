@@ -118,10 +118,11 @@ const groupPrintableItems = (items: PrintableItem[]): PrintableRow[] => {
 };
 
 const buildItemName = (item: PrintableRow) => {
-  const name = item.product_name || item.product_code || 'Hàng hóa';
-  const sizeLabel = item.sizes.length > 0 ? `cỡ ${compactSizeLabel(item.sizes)}` : '';
-  const details = [item.color, sizeLabel].filter(Boolean).join(', ');
-  return details ? `${name} ${details}` : name;
+  return item.product_name || item.product_code || 'Hàng hóa';
+};
+
+const buildSizeLabel = (item: PrintableRow) => {
+  return item.sizes.length > 0 ? compactSizeLabel(item.sizes) : '';
 };
 
 export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNoteProps) {
@@ -151,6 +152,8 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
           <tr>
             <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '46px' }}>STT</th>
             <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555' }}>Tên Hàng</th>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '76px' }}>Màu</th>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '72px' }}>Size</th>
             <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '64px' }}>ĐVT</th>
             <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '82px' }}>SL</th>
             <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '98px' }}>Đơn giá</th>
@@ -163,6 +166,8 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
             <tr key={`${item.product_code || item.product_name || 'item'}-${index}`}>
               <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{index + 1}</td>
               <td className="px-1.5 py-1" style={{ border: '1px dotted #777' }}>{buildItemName(item)}</td>
+              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{item.color || ''}</td>
+              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{buildSizeLabel(item)}</td>
               <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{item.unit_type || 'Ri'}</td>
               <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>
                 {formatNumber(item.quantityPerSize !== null && item.sizes.length > 1 ? item.quantityPerSize : item.totalPieces)}
@@ -174,15 +179,15 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
           ))}
 
           <tr>
-            <td colSpan={6} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Cộng tiền hàng</td>
+            <td colSpan={8} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Cộng tiền hàng</td>
             <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(invoice.total_amount)}</td>
           </tr>
           <tr>
-            <td colSpan={6} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Nợ cũ</td>
+            <td colSpan={8} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Nợ cũ</td>
             <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(oldDebt)}</td>
           </tr>
           <tr>
-            <td colSpan={6} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Tổng tiền thanh toán</td>
+            <td colSpan={8} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Tổng tiền thanh toán</td>
             <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(totalPayment)}</td>
           </tr>
         </tbody>

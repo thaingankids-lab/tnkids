@@ -17,7 +17,7 @@ import {
   DollarSign,
   FileSpreadsheet
 } from 'lucide-react';
-import { downloadInvoiceExcel } from '../lib/invoiceExport';
+import { downloadInvoiceExcel, downloadInvoicePdf } from '../lib/invoiceExport';
 
 interface CartItem {
   id: string; // unique local cart item id
@@ -1130,7 +1130,7 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
             <div className="bg-white p-6 rounded-2xl border-2 border-dashed border-slate-200 shadow-sm space-y-4 animate-fade-in relative">
               <div className="absolute top-4 right-4 flex gap-2 no-print">
                 <button
-                  onClick={handlePrint}
+                  onClick={() => downloadInvoicePdf(createdInvoice)}
                   className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all cursor-pointer"
                 >
                   <Printer className="h-3.5 w-3.5" /> Lưu PDF

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { Invoice } from '../types';
 import PrintableDeliveryNote from './PrintableDeliveryNote';
-import { downloadInvoiceExcel } from '../lib/invoiceExport';
+import { downloadInvoiceExcel, downloadInvoicePdf } from '../lib/invoiceExport';
 import { 
   History, 
   Search, 
@@ -716,7 +716,7 @@ export default function TodayInvoicesModule() {
                       <Edit3 className="h-3.5 w-3.5" /> Sửa chi tiết đơn
                     </button>
                     <button
-                      onClick={handlePrint}
+                      onClick={() => downloadInvoicePdf(selectedInvoice)}
                       className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all cursor-pointer"
                     >
                       <Printer className="h-3.5 w-3.5" /> Lưu PDF
