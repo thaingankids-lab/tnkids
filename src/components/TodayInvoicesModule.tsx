@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { Invoice } from '../types';
+import PrintableDeliveryNote from './PrintableDeliveryNote';
 import { 
   History, 
   Search, 
@@ -886,86 +887,7 @@ export default function TodayInvoicesModule() {
                   </div>
                 </div>
               ) : (
-                /* Core Printable sheet */
-                <div id="print-area" className="bg-white text-slate-900 p-4 text-xs leading-relaxed font-sans border border-slate-300">
-                  <div className="text-center space-y-1 mb-6">
-                    <h1 className="text-lg font-bold uppercase tracking-wider">PHIẾU GIAO HÀNG</h1>
-                    <p className="font-mono font-semibold text-slate-600 text-[10px]">Mã đơn: {selectedInvoice.invoice_code}</p>
-                    <p className="text-slate-500 text-[10px]">Ngày bán: {new Date(selectedInvoice.sale_date).toLocaleString('vi-VN')}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mb-6 border-b border-slate-200 pb-4">
-                    <div className="space-y-1">
-                      <p><span className="text-slate-500">Khách hàng:</span> <b className="text-slate-900">{selectedInvoice.customer_name_snapshot}</b></p>
-                      <p><span className="text-slate-500">Điện thoại:</span> <span className="font-mono font-medium">{selectedInvoice.customer_phone_snapshot || 'N/A'}</span></p>
-                      <p><span className="text-slate-500">Địa chỉ:</span> <span>{selectedInvoice.customer_address_snapshot || 'N/A'}</span></p>
-                    </div>
-                    <div className="space-y-1 text-right">
-                      <p><span className="text-slate-500">Đơn vị bán hàng:</span> <b>XƯỞNG SỈ THỜI TRANG</b></p>
-                      <p><span className="text-slate-500">Địa chỉ:</span> <span>Kho hàng sỉ toàn quốc</span></p>
-                      <p><span className="text-slate-500">Ghi chú:</span> <span className="italic text-slate-600">{selectedInvoice.note || 'N/A'}</span></p>
-                    </div>
-                  </div>
-
-                  {/* Table */}
-                  <table className="w-full border-collapse border border-slate-400 text-left mb-6">
-                    <thead>
-                      <tr className="bg-slate-100 border-b border-slate-400">
-                        <th className="border border-slate-400 p-2 font-bold text-center w-10">STT</th>
-                        <th className="border border-slate-400 p-2 font-bold">Tên hàng hoá</th>
-                        <th className="border border-slate-400 p-2 font-bold text-center w-14">ĐVT</th>
-                        <th className="border border-slate-400 p-2 font-bold text-center w-14">SL</th>
-                        <th className="border border-slate-400 p-2 font-bold text-right w-24">Đơn giá</th>
-                        <th className="border border-slate-400 p-2 font-bold text-right w-28">Thành tiền</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(selectedInvoice.invoice_items || []).map((item: any, idx: number) => (
-                        <tr key={idx}>
-                          <td className="border border-slate-400 p-2 text-center font-mono">{idx + 1}</td>
-                          <td className="border border-slate-400 p-2 font-medium">
-                            {item.product_name} 
-                            <span className="font-mono text-[10px] text-slate-500 ml-1">
-                              ({item.product_code} - Màu {item.color} - Size {item.size})
-                            </span>
-                          </td>
-                          <td className="border border-slate-400 p-2 text-center text-slate-600">{item.unit_type}</td>
-                          <td className="border border-slate-400 p-2 text-center font-mono font-bold">{item.quantity}</td>
-                          <td className="border border-slate-400 p-2 text-right font-mono">{formatCurrency(item.unit_price)}</td>
-                          <td className="border border-slate-400 p-2 text-right font-mono font-bold">{formatCurrency(item.subtotal)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-
-                  {/* Calculations */}
-                  <div className="w-fit ml-auto min-w-[280px] space-y-1.5 border-t border-slate-300 pt-3 mb-8 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-slate-600">Cộng tiền hàng:</span>
-                      <span className="font-mono font-bold">{formatCurrency(selectedInvoice.total_amount)}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Đã thu khách hàng:</span>
-                      <span className="font-mono">{formatCurrency(selectedInvoice.paid_amount)}</span>
-                    </div>
-                    <div className="flex justify-between font-bold border-t border-slate-200 pt-1.5 text-red-600">
-                      <span>Tổng nợ cũ / Nợ gối đầu:</span>
-                      <span className="font-mono">{formatCurrency(selectedInvoice.debt_amount)}</span>
-                    </div>
-                  </div>
-
-                  {/* Sign areas */}
-                  <div className="grid grid-cols-2 text-center mt-12 mb-6">
-                    <div className="space-y-16">
-                      <p className="font-semibold uppercase text-slate-700">NGƯỜI MUA HÀNG</p>
-                      <p className="text-slate-400 italic text-[10px]">(Ký, ghi rõ họ tên)</p>
-                    </div>
-                    <div className="space-y-16">
-                      <p className="font-semibold uppercase text-slate-700">NGƯỜI BÁN HÀNG</p>
-                      <p className="text-slate-400 italic text-[10px]">(Ký, ghi rõ họ tên)</p>
-                    </div>
-                  </div>
-                </div>
+                <PrintableDeliveryNote invoice={selectedInvoice} />
               )}
             </div>
           </div>
