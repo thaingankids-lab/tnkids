@@ -138,7 +138,7 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
   return (
     <div
       id="print-area"
-      className="bg-white text-black mx-auto max-w-[210mm] font-sans text-[12px] leading-snug"
+      className="bg-white text-black mx-auto font-sans text-[11px] leading-normal"
       style={{
         fontFamily: 'Arial, Tahoma, "Segoe UI", sans-serif',
         width: '297mm',
@@ -159,50 +159,55 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
       </div>
 
       <table
-        className="w-full border-collapse text-[12px]"
-        style={{ border: '1.5px solid #333', tableLayout: 'fixed' }}
+        className="w-full text-[11px]"
+        style={{
+          borderCollapse: 'separate',
+          borderSpacing: 0,
+          border: '1.5px solid #333',
+          tableLayout: 'fixed'
+        }}
       >
         <thead>
           <tr>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '46px' }}>STT</th>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '220px' }}>Tên Hàng</th>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '82px' }}>Màu</th>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '78px' }}>Size</th>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '76px' }}>ĐVT</th>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '62px' }}>SL</th>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '112px' }}>Đơn giá</th>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '128px' }}>Thành tiền</th>
-            <th className="text-center font-bold px-2 py-2" style={{ border: '1px solid #444', width: '110px' }}>Ghi chú</th>
+            <th className="text-center font-bold px-2" style={{ borderRight: '1px solid #444', borderBottom: '1px solid #444', width: '46px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>STT</th>
+            <th className="text-center font-bold px-2" style={{ borderRight: '1px solid #444', borderBottom: '1px solid #444', width: '220px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Tên Hàng</th>
+            <th className="text-center font-bold px-2" style={{ borderRight: '1px solid #444', borderBottom: '1px solid #444', width: '82px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Màu</th>
+            <th className="text-center font-bold px-2" style={{ borderRight: '1px solid #444', borderBottom: '1px solid #444', width: '78px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Size</th>
+            <th className="text-center font-bold px-2" style={{ borderRight: '1px solid #444', borderBottom: '1px solid #444', width: '76px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>ĐVT</th>
+            <th className="text-center font-bold px-2" style={{ borderRight: '1px solid #444', borderBottom: '1px solid #444', width: '62px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>SL</th>
+            <th className="text-center font-bold px-2" style={{ borderRight: '1px solid #444', borderBottom: '1px solid #444', width: '112px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Đơn giá</th>
+            <th className="text-center font-bold px-2" style={{ borderRight: '1px solid #444', borderBottom: '1px solid #444', width: '128px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Thành tiền</th>
+            <th className="text-center font-bold px-2" style={{ borderBottom: '1px solid #444', width: '110px', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Ghi chú</th>
           </tr>
         </thead>
         <tbody>
           {items.map((item, index) => (
             <tr key={`${item.product_code || item.product_name || 'item'}-${index}`}>
-              <td className="text-center px-2 py-2 align-middle" style={{ border: '1px solid #777', lineHeight: 1.35 }}>{index + 1}</td>
-              <td className="px-2 py-2 align-middle" style={{ border: '1px solid #777', lineHeight: 1.35 }}>{buildItemName(item)}</td>
-              <td className="text-center px-2 py-2 align-middle" style={{ border: '1px solid #777', lineHeight: 1.35 }}>{item.color || ''}</td>
-              <td className="text-center px-2 py-2 align-middle" style={{ border: '1px solid #777', whiteSpace: 'nowrap', lineHeight: 1.35 }}>{buildSizeLabel(item)}</td>
-              <td className="text-center px-2 py-2 align-middle" style={{ border: '1px solid #777', whiteSpace: 'nowrap', lineHeight: 1.35 }}>{normalizeUnitType(item.unit_type)}</td>
-              <td className="text-center px-2 py-2 align-middle font-bold" style={{ border: '1px solid #777', lineHeight: 1.35 }}>
+              <td className="text-center px-2 align-middle" style={{ borderRight: '1px solid #777', borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle' }}>{index + 1}</td>
+              <td className="px-2 align-middle" style={{ borderRight: '1px solid #777', borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle' }}>{buildItemName(item)}</td>
+              <td className="text-center px-2 align-middle" style={{ borderRight: '1px solid #777', borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle' }}>{item.color || ''}</td>
+              <td className="text-center px-2 align-middle" style={{ borderRight: '1px solid #777', borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{buildSizeLabel(item)}</td>
+              <td className="text-center px-2 align-middle" style={{ borderRight: '1px solid #777', borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{normalizeUnitType(item.unit_type)}</td>
+              <td className="text-center px-2 align-middle font-bold" style={{ borderRight: '1px solid #777', borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle' }}>
                 {formatNumber(item.quantityPerSize !== null && item.sizes.length > 1 ? item.quantityPerSize : item.totalPieces)}
               </td>
-              <td className="text-right px-2 py-2 align-middle" style={{ border: '1px solid #777', whiteSpace: 'nowrap', lineHeight: 1.35 }}>{formatNumber(item.unit_price)}</td>
-              <td className="text-right px-2 py-2 align-middle font-bold" style={{ border: '1px solid #777', whiteSpace: 'nowrap', lineHeight: 1.35 }}>{formatNumber(item.subtotal)}</td>
-              <td className="px-2 py-2 align-middle" style={{ border: '1px solid #777', lineHeight: 1.35 }}>{item.note || ''}</td>
+              <td className="text-right px-2 align-middle" style={{ borderRight: '1px solid #777', borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{formatNumber(item.unit_price)}</td>
+              <td className="text-right px-2 align-middle font-bold" style={{ borderRight: '1px solid #777', borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{formatNumber(item.subtotal)}</td>
+              <td className="px-2 align-middle" style={{ borderBottom: '1px solid #777', height: '28px', lineHeight: '16px', verticalAlign: 'middle' }}>{item.note || ''}</td>
             </tr>
           ))}
 
           <tr>
-            <td colSpan={8} className="text-center px-2 py-2" style={{ border: '1.5px solid #333' }}>Cộng tiền hàng</td>
-            <td className="text-right font-bold px-2 py-2" style={{ border: '1.5px solid #333' }}>{formatNumber(invoice.total_amount)}</td>
+            <td colSpan={8} className="text-center px-2" style={{ borderRight: '1.5px solid #333', borderBottom: '1.5px solid #333', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Cộng tiền hàng</td>
+            <td className="text-right font-bold px-2" style={{ borderBottom: '1.5px solid #333', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>{formatNumber(invoice.total_amount)}</td>
           </tr>
           <tr>
-            <td colSpan={8} className="text-center px-2 py-2" style={{ border: '1.5px solid #333' }}>Nợ cũ</td>
-            <td className="text-right font-bold px-2 py-2" style={{ border: '1.5px solid #333' }}>{formatNumber(oldDebt)}</td>
+            <td colSpan={8} className="text-center px-2" style={{ borderRight: '1.5px solid #333', borderBottom: '1.5px solid #333', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Nợ cũ</td>
+            <td className="text-right font-bold px-2" style={{ borderBottom: '1.5px solid #333', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>{formatNumber(oldDebt)}</td>
           </tr>
           <tr>
-            <td colSpan={8} className="text-center px-2 py-2" style={{ border: '1.5px solid #333' }}>Tổng tiền thanh toán</td>
-            <td className="text-right font-bold px-2 py-2" style={{ border: '1.5px solid #333' }}>{formatNumber(totalPayment)}</td>
+            <td colSpan={8} className="text-center px-2" style={{ borderRight: '1.5px solid #333', height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>Tổng tiền thanh toán</td>
+            <td className="text-right font-bold px-2" style={{ height: '30px', lineHeight: '16px', verticalAlign: 'middle' }}>{formatNumber(totalPayment)}</td>
           </tr>
         </tbody>
       </table>
