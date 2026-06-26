@@ -1,0 +1,6 @@
+{
+  "name": "Remix: Phần mềm Quản lý Kho sỉ và Bán hàng",
+  "description": "Hệ thống quản lý kho hàng, nhập xuất sỉ theo ri/size, gối đầu công nợ khách hàng và tra cứu trực tuyến thời gian thực tích hợp Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
