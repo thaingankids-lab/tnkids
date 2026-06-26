@@ -114,27 +114,23 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
 
   const fetchData = async () => {
     try {
-      // Customers
-      const { data: custData } = await supabase.from('customers').select('*').order('name');
-      setCustomers(custData || []);
+      const [customersRes, productsRes, stockRes, sizeSetsRes] = await Promise.all([
+        supabase.from('customers').select('*').order('name'),
+        supabase.from('products').select('*').order('code'),
+        supabase.from('inventory_batches').select('*').gt('quantity', 0),
+        supabase.from('size_sets').select('*').order('name')
+      ]);
 
-      // Products
-      const { data: prodData } = await supabase.from('products').select('*').order('code');
-      setProducts(prodData || []);
+      if (customersRes.error) throw customersRes.error;
+      if (productsRes.error) throw productsRes.error;
+      if (stockRes.error) throw stockRes.error;
+      if (sizeSetsRes.error) throw sizeSetsRes.error;
 
-      // Stock batches with active quantities > 0
-      const { data: stockData } = await supabase
-        .from('inventory_batches')
-        .select('*')
-        .gt('quantity', 0);
-      setStockBatches((stockData || []) as any);
+      setCustomers(customersRes.data || []);
+      setProducts(productsRes.data || []);
+      setStockBatches((stockRes.data || []) as any);
 
-      // Fetch Size Sets
-      const { data: sizeSetsData } = await supabase
-        .from('size_sets')
-        .select('*')
-        .order('name');
-      const activeSets = (sizeSetsData || []).filter((s: any) => s.is_active !== false);
+      const activeSets = (sizeSetsRes.data || []).filter((s: any) => s.is_active !== false);
       setSizeSets(activeSets);
     } catch (err) {
       console.error('Lỗi fetch dữ liệu xuất hoá đơn:', err);
@@ -577,29 +573,29 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
 
       if (itemsErr) throw itemsErr;
 
-      // 4. Subtract Stock from inventory_batches
-      for (const item of cart) {
-        const { data: currentBatch, error: stockReadErr } = await supabase
-          .from('inventory_batches')
-          .select('quantity')
-          .eq('id', item.batch_id)
-          .single();
+      // 4. Subtract stock. Group by batch to avoid one read + one write per cart row.
+      const quantityByBatch = cart.reduce<Record<string, number>>((acc, item) => {
+        acc[item.batch_id] = (acc[item.batch_id] || 0) + item.quantity;
+        return acc;
+      }, {});
+      const updatedAt = new Date().toISOString();
 
-        if (stockReadErr) throw stockReadErr;
-        const currentQty = currentBatch?.quantity || 0;
-        if (currentQty < item.quantity) {
-          throw new Error(`Không đủ tồn kho cho ${item.product_code} - màu ${item.color} - size ${item.size}. Hiện còn ${currentQty} cái, cần ${item.quantity} cái.`);
+      await Promise.all(Object.entries(quantityByBatch).map(async ([batchId, quantitySold]) => {
+        const batch = stockBatches.find(item => item.id === batchId);
+        const currentQty = batch?.quantity || 0;
+        const soldQty = Number(quantitySold) || 0;
+        if (!batch || currentQty < soldQty) {
+          const cartItem = cart.find(item => item.batch_id === batchId);
+          throw new Error(`Không đủ tồn kho cho ${cartItem?.product_code || 'sản phẩm'} - màu ${cartItem?.color || ''} - size ${cartItem?.size || ''}. Hiện còn ${currentQty} cái, cần ${soldQty} cái.`);
         }
-
-        const newQty = currentQty - item.quantity;
 
         const { error: updateStockErr } = await supabase
           .from('inventory_batches')
-          .update({ quantity: newQty, updated_at: new Date().toISOString() })
-          .eq('id', item.batch_id);
+          .update({ quantity: currentQty - soldQty, updated_at: updatedAt })
+          .eq('id', batchId);
 
         if (updateStockErr) throw updateStockErr;
-      }
+      }));
 
       // 5. Create Payment record if paid amount > 0
       const paid = parseInt(paidAmount, 10) || 0;
@@ -640,8 +636,13 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
       setSelectedProductId('');
       setItemPrice('');
 
-      // Refresh listings
-      fetchData();
+      setStockBatches(prev => prev
+        .map(batch => {
+          const quantitySold = quantityByBatch[batch.id] || 0;
+          return quantitySold > 0 ? { ...batch, quantity: batch.quantity - quantitySold } : batch;
+        })
+        .filter(batch => batch.quantity > 0)
+      );
       if (onInvoiceCreated) onInvoiceCreated();
 
     } catch (err: any) {

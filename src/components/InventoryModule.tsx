@@ -160,8 +160,26 @@ export default function InventoryModule() {
   const [allColors, setAllColors] = useState<string[]>([]);
   const [allSizes, setAllSizes] = useState<string[]>([]);
 
-  const fetchStock = async () => {
-    setLoading(true);
+  const applyStockData = (stockData: StockItem[]) => {
+    setStock(stockData);
+
+    const colorsSet = new Set<string>();
+    const sizesSet = new Set<string>();
+    stockData.forEach(item => {
+      if (item.color) colorsSet.add(item.color);
+      if (item.size) sizesSet.add(item.size);
+    });
+    setAllColors(Array.from(colorsSet).sort());
+    setAllSizes(Array.from(sizesSet).sort((a, b) => {
+      const numA = parseInt(a, 10);
+      const numB = parseInt(b, 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.localeCompare(b);
+    }));
+  };
+
+  const fetchStock = async (showFullLoading = true) => {
+    if (showFullLoading) setLoading(true);
     try {
       const { data, error } = await supabase
         .from('inventory_batches')
@@ -186,26 +204,11 @@ export default function InventoryModule() {
       if (error) throw error;
       
       const stockData = (data || []) as unknown as StockItem[];
-      setStock(stockData);
-
-      // Extract unique colors and sizes for filter options
-      const colorsSet = new Set<string>();
-      const sizesSet = new Set<string>();
-      stockData.forEach(item => {
-        if (item.color) colorsSet.add(item.color);
-        if (item.size) sizesSet.add(item.size);
-      });
-      setAllColors(Array.from(colorsSet).sort());
-      setAllSizes(Array.from(sizesSet).sort((a, b) => {
-        const numA = parseInt(a, 10);
-        const numB = parseInt(b, 10);
-        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-        return a.localeCompare(b);
-      }));
+      applyStockData(stockData);
     } catch (err: any) {
       console.error('Lỗi tải danh sách tồn kho:', err.message);
     } finally {
-      setLoading(false);
+      if (showFullLoading) setLoading(false);
     }
   };
 
@@ -216,10 +219,10 @@ export default function InventoryModule() {
     const channel = supabase
       .channel('public:inventory_batches_inventory')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_batches' }, () => {
-        fetchStock();
+        fetchStock(false);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
-        fetchStock();
+        fetchStock(false);
       })
       .subscribe();
 
@@ -259,7 +262,12 @@ export default function InventoryModule() {
 
       showToast('Đã lưu chỉnh sửa tồn kho thành công.', 'success');
       setEditingId(null);
-      await fetchStock();
+      const updatedStock = stock.map(item => (
+        item.id === id
+          ? { ...item, quantity: editQty, note: editNote.trim() || '' }
+          : item
+      ));
+      applyStockData(updatedStock);
 
       // Sync local state modal immediately
       if (selectedGroup) {
@@ -334,7 +342,7 @@ export default function InventoryModule() {
         setSelectedProductCode(null);
         setSelectedGroup(null);
         setConfirmDelete({ isOpen: false, itemId: null, deleteType: null, title: '', message: '' });
-        await fetchStock();
+        applyStockData(stock.filter(item => item.product_id !== productId));
       } else {
         // Delete standard item
         const { error } = await supabase
@@ -348,7 +356,7 @@ export default function InventoryModule() {
         showToast('Đã xoá thành công dòng tồn kho khỏi cơ sở dữ liệu.', 'success');
         setConfirmDelete({ isOpen: false, itemId: null, deleteType: null, title: '', message: '' });
         setEditingId(null);
-        await fetchStock();
+        applyStockData(stock.filter(item => item.id !== deletedId));
 
         // Sync local state modal immediately
         if (selectedGroup) {

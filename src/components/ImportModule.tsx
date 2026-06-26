@@ -65,8 +65,12 @@ export default function ImportModule() {
 
   const fetchInitialData = async () => {
     try {
-      // Fetch size sets
-      const { data: sizeData, error: sizeErr } = await supabase.from('size_sets').select('*').order('created_at', { ascending: true });
+      const [sizeRes, productRes] = await Promise.all([
+        supabase.from('size_sets').select('*').order('created_at', { ascending: true }),
+        supabase.from('products').select('*')
+      ]);
+
+      const { data: sizeData, error: sizeErr } = sizeRes;
       if (sizeErr) throw sizeErr;
       const activeSets = (sizeData || []).filter((s: any) => s.is_active !== false);
       setDbSizeSets(activeSets);
@@ -80,8 +84,7 @@ export default function ImportModule() {
         setSelectedSizeSetName('Tuỳ chọn');
       }
 
-      // Fetch products for autocompletion
-      const { data: prodData, error: prodErr } = await supabase.from('products').select('*');
+      const { data: prodData, error: prodErr } = productRes;
       if (prodErr) throw prodErr;
       setProducts(prodData || []);
     } catch (err: any) {
@@ -511,39 +514,49 @@ export default function ImportModule() {
         });
       });
 
-      // Upsert into inventory_batches sequentially to prevent race conditions and correctly aggregate
-      for (const item of batchInserts) {
-        let query = supabase
-          .from('inventory_batches')
-          .select('id, quantity')
-          .eq('product_id', item.product_id)
-          .eq('color', item.color)
-          .eq('size', item.size);
-          
-        if (item.size_set_id === null) {
-          query = query.is('size_set_id', null);
-        } else {
-          query = query.eq('size_set_id', item.size_set_id);
-        }
-        
-        const { data: existing, error: findError } = await query.maybeSingle();
-        if (findError) throw findError;
-        
+      const { data: existingBatches, error: existingError } = await supabase
+        .from('inventory_batches')
+        .select('id, quantity, color, size, size_set_id')
+        .eq('product_id', productId);
+
+      if (existingError) throw existingError;
+
+      const makeBatchKey = (item: { color: string; size: string; size_set_id: string | null }) => {
+        return `${item.color}|${item.size}|${item.size_set_id || 'no_set'}`;
+      };
+      const existingByKey = new Map((existingBatches || []).map(item => [makeBatchKey(item), item]));
+      const rowsToInsert: any[] = [];
+      const updatesToRun: Promise<any>[] = [];
+      const updatedAt = new Date().toISOString();
+
+      batchInserts.forEach(item => {
+        const existing = existingByKey.get(makeBatchKey(item));
         if (existing) {
-          const { error: updateError } = await supabase
-            .from('inventory_batches')
-            .update({
-              quantity: existing.quantity + item.quantity,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', existing.id);
-          if (updateError) throw updateError;
+          updatesToRun.push(
+            (async () => {
+              return supabase
+                .from('inventory_batches')
+                .update({
+                  quantity: existing.quantity + item.quantity,
+                  updated_at: updatedAt
+                })
+                .eq('id', existing.id);
+            })()
+          );
         } else {
-          const { error: insertError } = await supabase
-            .from('inventory_batches')
-            .insert(item);
-          if (insertError) throw insertError;
+          rowsToInsert.push(item);
         }
+      });
+
+      const updateResults = await Promise.all(updatesToRun);
+      const updateError = updateResults.find(result => result.error)?.error;
+      if (updateError) throw updateError;
+
+      if (rowsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from('inventory_batches')
+          .insert(rowsToInsert);
+        if (insertError) throw insertError;
       }
 
       setMessage({ type: 'success', text: `Đã nhập kho thành công lô hàng (${totalQty} cái)! Dữ liệu đã đồng bộ lên Supabase.` });
@@ -560,10 +573,12 @@ export default function ImportModule() {
       setSaveCustomSet(false);
       setCustomSetName('');
       
-      // Reload size sets and select the updated/created one
-      const { data: sizeData } = await supabase.from('size_sets').select('*').order('created_at', { ascending: true });
-      const updatedDbSizeSets = sizeData || [];
-      setDbSizeSets(updatedDbSizeSets);
+      let updatedDbSizeSets = dbSizeSets;
+      if (!selectedSizeSetId && sizeSetId) {
+        const { data: sizeData } = await supabase.from('size_sets').select('*').order('created_at', { ascending: true });
+        updatedDbSizeSets = (sizeData || []).filter((s: any) => s.is_active !== false);
+        setDbSizeSets(updatedDbSizeSets);
+      }
       
       if (sizeSetId) {
         setSelectedSizeSetId(sizeSetId);
@@ -578,9 +593,16 @@ export default function ImportModule() {
       setIsCreatingNewProduct(false);
       setIsDropdownOpen(false);
       
-      // Refresh autocomplete products
-      const { data: prodData } = await supabase.from('products').select('*');
-      setProducts(prodData || []);
+      if (!selectedProductId) {
+        const { data: prodData } = await supabase.from('products').select('*');
+        setProducts(prodData || []);
+      } else {
+        setProducts(prev => prev.map(product => (
+          product.id === selectedProductId
+            ? { ...product, colors: Array.from(new Set([...product.colors, ...colors])) }
+            : product
+        )));
+      }
 
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message || 'Có lỗi xảy ra khi nhập kho.' });
