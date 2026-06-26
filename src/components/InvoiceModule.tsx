@@ -1,0 +1,1093 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { Customer, Product, InventoryBatch } from '../types';
+import { 
+  Plus, 
+  Trash2, 
+  Search, 
+  UserPlus, 
+  AlertTriangle, 
+  Check, 
+  Printer, 
+  Save, 
+  Loader2, 
+  ChevronRight,
+  ShoppingBag,
+  DollarSign
+} from 'lucide-react';
+
+interface CartItem {
+  id: string; // unique local cart item id
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  color: string;
+  size: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+  unit_type: string; // 'Ri nhí', 'Ri đại', 'Tuỳ chọn'
+  batch_id: string; // Reference to inventory_batches.id to subtract stock later
+  available_qty: number;
+}
+
+export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [stockBatches, setStockBatches] = useState<InventoryBatch[]>([]);
+
+  // Selected Customer state
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [isNewCustomer, setIsNewCustomer] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustAddress, setNewCustAddress] = useState('');
+  const [newCustNote, setNewCustNote] = useState('');
+
+  // Item selector state
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [availableColors, setAvailableColors] = useState<string[]>([]);
+  const [selectedColor, setSelectedColor] = useState<string>('');
+  const [entryMode, setEntryMode] = useState<'single' | 'ri_nhi' | 'ri_dai' | 'ri_set'>('single');
+  const [riMultiplier, setRiMultiplier] = useState<number>(1);
+  const [itemPrice, setItemPrice] = useState<string>('');
+
+  // Size sets list from database for selecting whole Ri
+  const [sizeSets, setSizeSets] = useState<any[]>([]);
+  const [selectedSizeSetId, setSelectedSizeSetId] = useState<string | null>(null);
+
+  // Custom sizes quantity inputs for selected product + color
+  const [availableSizesForColor, setAvailableSizesForColor] = useState<{ size: string; quantity: number; batch_id: string; unit_type: string }[]>([]);
+  const [sizeQuantities, setSizeQuantities] = useState<{ [size: string]: number }>({});
+
+  // Cart
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [invoiceNote, setInvoiceNote] = useState('');
+  const [paidAmount, setPaidAmount] = useState<string>('0');
+  const [paymentStatus, setPaymentStatus] = useState<string>('đã thu');
+
+  // Success printing state
+  const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
+
+  const fetchData = async () => {
+    try {
+      // Customers
+      const { data: custData } = await supabase.from('customers').select('*').order('name');
+      setCustomers(custData || []);
+
+      // Products
+      const { data: prodData } = await supabase.from('products').select('*').order('code');
+      setProducts(prodData || []);
+
+      // Stock batches with active quantities > 0
+      const { data: stockData } = await supabase
+        .from('inventory_batches')
+        .select('*')
+        .gt('quantity', 0);
+      setStockBatches((stockData || []) as any);
+
+      // Fetch Size Sets
+      const { data: sizeSetsData } = await supabase
+        .from('size_sets')
+        .select('*')
+        .order('name');
+      const activeSets = (sizeSetsData || []).filter((s: any) => s.is_active !== false);
+      setSizeSets(activeSets);
+    } catch (err) {
+      console.error('Lỗi fetch dữ liệu xuất hoá đơn:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+
+    const channel = supabase
+      .channel('public:invoice_form_data')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => {
+        fetchData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+        fetchData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_batches' }, () => {
+        fetchData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'size_sets' }, () => {
+        fetchData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // When selected product changes, find available colors in stock
+  useEffect(() => {
+    if (!selectedProductId) {
+      setAvailableColors([]);
+      setSelectedColor('');
+      return;
+    }
+
+    const colorsInStock = Array.from(new Set(
+      stockBatches
+        .filter(b => b.product_id === selectedProductId)
+        .map(b => b.color)
+    ));
+    setAvailableColors(colorsInStock);
+    setSelectedColor(colorsInStock[0] || '');
+  }, [selectedProductId, stockBatches]);
+
+  // When color changes, find available sizes and quantities
+  useEffect(() => {
+    if (!selectedProductId || !selectedColor) {
+      setAvailableSizesForColor([]);
+      setSizeQuantities({});
+      return;
+    }
+
+    const sizesInStock = stockBatches
+      .filter(b => b.product_id === selectedProductId && b.color === selectedColor)
+      .map(b => ({
+        size: b.size,
+        quantity: b.quantity,
+        batch_id: b.id,
+        unit_type: b.unit_type
+      }));
+
+    setAvailableSizesForColor(sizesInStock);
+
+    // Reset inputs
+    const initialQtys: { [size: string]: number } = {};
+    sizesInStock.forEach(s => {
+      initialQtys[s.size] = 0;
+    });
+    setSizeQuantities(initialQtys);
+  }, [selectedColor, selectedProductId, stockBatches]);
+
+  // Handle auto-fill based on Ri Nhí/Ri Đại or Custom Ri Set selection
+  useEffect(() => {
+    if (entryMode === 'single') {
+      const resetQtys: { [size: string]: number } = {};
+      availableSizesForColor.forEach(s => {
+        resetQtys[s.size] = 0;
+      });
+      setSizeQuantities(resetQtys);
+      return;
+    }
+
+    const newQtys = { ...sizeQuantities };
+
+    if (entryMode === 'ri_set' && selectedSizeSetId) {
+      const activeSet = sizeSets.find(s => s.id === selectedSizeSetId);
+      if (activeSet) {
+        availableSizesForColor.forEach(s => {
+          const isPart = activeSet.sizes.some((sz: string) => sz.trim() === s.size.trim());
+          newQtys[s.size] = isPart ? riMultiplier : 0;
+        });
+      }
+    } else {
+      availableSizesForColor.forEach(s => {
+        if (entryMode === 'ri_nhi' && s.unit_type === 'Ri nhí') {
+          newQtys[s.size] = riMultiplier;
+        } else if (entryMode === 'ri_dai' && s.unit_type === 'Ri đại') {
+          newQtys[s.size] = riMultiplier;
+        } else {
+          newQtys[s.size] = 0;
+        }
+      });
+    }
+
+    setSizeQuantities(newQtys);
+  }, [entryMode, riMultiplier, selectedSizeSetId, availableSizesForColor, sizeSets]);
+
+  const handleSizeQtyChange = (size: string, val: string) => {
+    const qty = parseInt(val, 10) || 0;
+    setSizeQuantities(prev => ({
+      ...prev,
+      [size]: qty >= 0 ? qty : 0
+    }));
+  };
+
+  const addToCart = () => {
+    const prod = products.find(p => p.id === selectedProductId);
+    const price = parseInt(itemPrice, 10);
+
+    if (!prod) return;
+    if (isNaN(price) || price <= 0) {
+      alert('Vui lòng nhập đơn giá hợp lệ > 0.');
+      return;
+    }
+
+    // Validate full Ri group availability and check for missing/insufficient sizes
+    if (entryMode === 'ri_set' && selectedSizeSetId) {
+      const activeSet = sizeSets.find(s => s.id === selectedSizeSetId);
+      if (activeSet) {
+        const missingSizes: string[] = [];
+        const insufficientSizes: { size: string; req: number; av: number }[] = [];
+
+        activeSet.sizes.forEach((sz: string) => {
+          const sizeTrimmed = sz.trim();
+          const stockInfo = availableSizesForColor.find(s => s.size.trim() === sizeTrimmed);
+          const reqQty = riMultiplier;
+
+          if (!stockInfo || stockInfo.quantity <= 0) {
+            missingSizes.push(sizeTrimmed);
+          } else {
+            const existingInCart = cart
+              .filter(item => item.batch_id === stockInfo.batch_id)
+              .reduce((sum, item) => sum + item.quantity, 0);
+
+            if (reqQty + existingInCart > stockInfo.quantity) {
+              insufficientSizes.push({
+                size: sizeTrimmed,
+                req: reqQty + existingInCart,
+                av: stockInfo.quantity
+              });
+            }
+          }
+        });
+
+        if (missingSizes.length > 0 || insufficientSizes.length > 0) {
+          let errMsg = `Sản phẩm không đủ tồn kho để bán nguyên Ri "${activeSet.name}".\n`;
+          if (missingSizes.length > 0) {
+            errMsg += `- Thiếu hẳn các Size (Hết hàng/Không có tồn): ${missingSizes.join(', ')}\n`;
+          }
+          if (insufficientSizes.length > 0) {
+            insufficientSizes.forEach(item => {
+              errMsg += `- Size ${item.size} cần ${item.req} cái nhưng chỉ còn ${item.av} cái trong kho.\n`;
+            });
+          }
+          alert(errMsg);
+          return;
+        }
+      }
+    }
+
+    const itemsToAdd: CartItem[] = [];
+    let hasStockError = false;
+
+    // Check sizes being entered
+    Object.keys(sizeQuantities).forEach(size => {
+      const qty = sizeQuantities[size];
+      if (qty <= 0) return;
+
+      const stockInfo = availableSizesForColor.find(s => s.size === size);
+      if (!stockInfo) return;
+
+      // Check stock availability
+      const existingInCart = cart
+        .filter(item => item.batch_id === stockInfo.batch_id)
+        .reduce((sum, item) => sum + item.quantity, 0);
+
+      if (qty + existingInCart > stockInfo.quantity) {
+        alert(`Số lượng chọn bán cho Size ${size} (${qty + existingInCart} cái) vượt quá tồn kho hiện tại (${stockInfo.quantity} cái).`);
+        hasStockError = true;
+        return;
+      }
+
+      itemsToAdd.push({
+        id: `${stockInfo.batch_id}-${size}-${Date.now()}`,
+        product_id: prod.id,
+        product_code: prod.code,
+        product_name: prod.code,
+        color: selectedColor,
+        size: size,
+        quantity: qty,
+        unit_price: price,
+        subtotal: qty * price,
+        unit_type: stockInfo.unit_type,
+        batch_id: stockInfo.batch_id,
+        available_qty: stockInfo.quantity
+      });
+    });
+
+    if (hasStockError) return;
+
+    if (itemsToAdd.length === 0) {
+      alert('Vui lòng chọn số lượng lớn hơn 0 cho ít nhất một size.');
+      return;
+    }
+
+    setCart([...cart, ...itemsToAdd]);
+    
+    // Reset selection fields slightly
+    setEntryMode('single');
+    setRiMultiplier(1);
+    const resetQtys: { [size: string]: number } = {};
+    availableSizesForColor.forEach(s => {
+      resetQtys[s.size] = 0;
+    });
+    setSizeQuantities(resetQtys);
+  };
+
+  const removeFromCart = (id: string) => {
+    setCart(cart.filter(item => item.id !== id));
+  };
+
+  const totalAmount = cart.reduce((sum, item) => sum + item.subtotal, 0);
+  const debtAmount = totalAmount - (parseInt(paidAmount, 10) || 0);
+
+  // Auto-set status based on paid amount
+  useEffect(() => {
+    const paid = parseInt(paidAmount, 10) || 0;
+    if (paid === 0) {
+      setPaymentStatus('chưa thu');
+    } else if (paid >= totalAmount && totalAmount > 0) {
+      setPaymentStatus('đã thu');
+    } else {
+      setPaymentStatus('thu một phần');
+    }
+  }, [paidAmount, totalAmount]);
+
+  const handleSaveInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (cart.length === 0) {
+      alert('Giỏ hàng trống! Vui lòng chọn ít nhất 1 sản phẩm.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let customerId = selectedCustomerId;
+      let customerName = '';
+      let customerPhone = '';
+      let customerAddress = '';
+
+      // 1. Create customer if new
+      if (isNewCustomer) {
+        if (!newCustName.trim()) {
+          throw new Error('Vui lòng nhập tên khách hàng mới.');
+        }
+
+        const token = `KH-${Math.floor(100000 + Math.random() * 900000)}`;
+
+        const { data: newCust, error: custErr } = await supabase
+          .from('customers')
+          .insert({
+            name: newCustName.trim(),
+            phone: newCustPhone.trim() || null,
+            address: newCustAddress.trim() || null,
+            note: newCustNote.trim() || '',
+            tracking_token: token
+          })
+          .select()
+          .single();
+
+        if (custErr) throw custErr;
+        customerId = newCust.id;
+        customerName = newCust.name;
+        customerPhone = newCust.phone || '';
+        customerAddress = newCust.address || '';
+      } else {
+        const found = customers.find(c => c.id === customerId);
+        if (found) {
+          customerName = found.name;
+          customerPhone = found.phone || '';
+          customerAddress = found.address || '';
+        } else {
+          customerName = 'Khách lẻ vãng lai';
+        }
+      }
+
+      // Generate invoice code
+      const invoiceCode = `HD-${Date.now().toString().slice(-8)}`;
+
+      // 2. Create Invoice
+      const { data: newInvoice, error: invErr } = await supabase
+        .from('invoices')
+        .insert({
+          invoice_code: invoiceCode,
+          customer_id: customerId || null,
+          customer_name_snapshot: customerName,
+          customer_phone_snapshot: customerPhone,
+          customer_address_snapshot: customerAddress,
+          total_amount: totalAmount,
+          paid_amount: parseInt(paidAmount, 10) || 0,
+          debt_amount: debtAmount >= 0 ? debtAmount : 0,
+          payment_status: paymentStatus,
+          sale_date: new Date().toISOString(),
+          note: invoiceNote.trim() || ''
+        })
+        .select()
+        .single();
+
+      if (invErr) throw invErr;
+
+      // 3. Create Invoice Items
+      const itemInserts = cart.map(item => ({
+        invoice_id: newInvoice.id,
+        product_id: item.product_id,
+        product_code: item.product_code,
+        product_name: item.product_name,
+        color: item.color,
+        size: item.size,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        subtotal: item.subtotal,
+        unit_type: item.unit_type
+      }));
+
+      const { error: itemsErr } = await supabase
+        .from('invoice_items')
+        .insert(itemInserts);
+
+      if (itemsErr) throw itemsErr;
+
+      // 4. Subtract Stock from inventory_batches
+      for (const item of cart) {
+        const { data: currentBatch, error: stockReadErr } = await supabase
+          .from('inventory_batches')
+          .select('quantity')
+          .eq('id', item.batch_id)
+          .single();
+
+        if (stockReadErr) throw stockReadErr;
+        const currentQty = currentBatch?.quantity || 0;
+        if (currentQty < item.quantity) {
+          throw new Error(`Không đủ tồn kho cho ${item.product_code} - màu ${item.color} - size ${item.size}. Hiện còn ${currentQty} cái, cần ${item.quantity} cái.`);
+        }
+
+        const newQty = currentQty - item.quantity;
+
+        const { error: updateStockErr } = await supabase
+          .from('inventory_batches')
+          .update({ quantity: newQty, updated_at: new Date().toISOString() })
+          .eq('id', item.batch_id);
+
+        if (updateStockErr) throw updateStockErr;
+      }
+
+      // 5. Create Payment record if paid amount > 0
+      const paid = parseInt(paidAmount, 10) || 0;
+      if (paid > 0 && customerId) {
+        const { error: payErr } = await supabase
+          .from('payments')
+          .insert({
+            customer_id: customerId,
+            invoice_id: newInvoice.id,
+            amount: paid,
+            payment_date: new Date().toISOString(),
+            note: `Thanh toán cho hoá đơn ${invoiceCode}`
+          });
+        
+        if (payErr) console.error('Lỗi tạo phiếu thu tự động:', payErr.message);
+      }
+
+      // Successful invoice creation
+      alert(`Xuất hoá đơn thành công! Mã hoá đơn: ${invoiceCode}`);
+      setCreatedInvoice({
+        ...newInvoice,
+        items: cart,
+        customer_name_snapshot: customerName,
+        customer_phone_snapshot: customerPhone,
+        customer_address_snapshot: customerAddress
+      });
+
+      // Reset Form State
+      setCart([]);
+      setSelectedCustomerId('');
+      setIsNewCustomer(false);
+      setNewCustName('');
+      setNewCustPhone('');
+      setNewCustAddress('');
+      setNewCustNote('');
+      setInvoiceNote('');
+      setPaidAmount('0');
+      setSelectedProductId('');
+      setItemPrice('');
+
+      // Refresh listings
+      fetchData();
+      if (onInvoiceCreated) onInvoiceCreated();
+
+    } catch (err: any) {
+      alert('Lỗi khi lưu hoá đơn: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const formatCurrency = (val: number) => {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-xl font-bold text-slate-900 tracking-tight">Xuất hoá đơn bán hàng</h2>
+        <p className="text-xs text-slate-500 mt-0.5">Lập đơn sỉ lẻ, trừ trực tiếp số lượng tồn kho theo ri và tự tính toán công nợ</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Column 1: Client Selection & Creation */}
+        <div className="space-y-5 lg:col-span-1">
+          {/* Client select card */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <UserPlus className="h-4 w-4 text-blue-600" /> Hồ sơ khách hàng
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsNewCustomer(!isNewCustomer)}
+                className="text-xs text-blue-600 font-bold hover:underline cursor-pointer flex items-center gap-1"
+              >
+                {isNewCustomer ? 'Chọn khách cũ' : 'Thêm khách mới'}
+              </button>
+            </div>
+
+            {isNewCustomer ? (
+              <div className="space-y-3 animate-fade-in text-xs">
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-600">Tên khách hàng <span className="text-red-500">*</span></span>
+                  <input
+                    type="text"
+                    required
+                    value={newCustName}
+                    onChange={(e) => setNewCustName(e.target.value)}
+                    placeholder="Tên khách, xưởng sỉ..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-600">Số điện thoại</span>
+                  <input
+                    type="text"
+                    value={newCustPhone}
+                    onChange={(e) => setNewCustPhone(e.target.value)}
+                    placeholder="09xxx..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-600">Địa chỉ giao nhận</span>
+                  <input
+                    type="text"
+                    value={newCustAddress}
+                    onChange={(e) => setNewCustAddress(e.target.value)}
+                    placeholder="Đống Đa, Hà Nội..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-600">Ghi chú công nợ khách</span>
+                  <textarea
+                    value={newCustNote}
+                    onChange={(e) => setNewCustNote(e.target.value)}
+                    placeholder="Thanh toán gối đầu..."
+                    rows={2}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none resize-none"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 text-xs">
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-600 block">Chọn khách hàng từ danh sách:</span>
+                  <select
+                    value={selectedCustomerId}
+                    onChange={(e) => setSelectedCustomerId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none bg-slate-50 font-medium"
+                  >
+                    <option value="">-- Khách lẻ vãng lai (Không ghi sổ nợ) --</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedCustomerId && (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-[11px] space-y-1">
+                    <p className="font-semibold text-slate-700">Thông tin snapshot liên hệ:</p>
+                    <p className="text-slate-500">SĐT: {customers.find(c => c.id === selectedCustomerId)?.phone || 'N/A'}</p>
+                    <p className="text-slate-500">Đ/C: {customers.find(c => c.id === selectedCustomerId)?.address || 'N/A'}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Core Item Selector Area */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-1.5">
+              <ShoppingBag className="h-4 w-4 text-blue-600" /> Chọn hàng cần bán
+            </h3>
+
+            {/* Select product */}
+            <div className="space-y-1 text-xs">
+              <span className="font-semibold text-slate-600 block">Chọn mã sản phẩm có tồn kho:</span>
+              <select
+                value={selectedProductId}
+                onChange={(e) => setSelectedProductId(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 focus:outline-none bg-slate-50 font-bold"
+              >
+                <option value="">-- Chọn sản phẩm --</option>
+                {products.map(p => {
+                  const inStock = stockBatches.some(b => b.product_id === p.id);
+                  return (
+                    <option key={p.id} value={p.id} disabled={!inStock}>
+                      {p.code} {!inStock ? '(HẾT HÀNG)' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {selectedProductId && availableColors.length > 0 && (
+              <div className="space-y-4 animate-fade-in text-xs">
+                {/* Select Color */}
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-600 block">Chọn màu sắc:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {availableColors.map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setSelectedColor(color)}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          selectedColor === color
+                            ? 'bg-blue-600 border-blue-600 text-white'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {color}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Entry mode select */}
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-600 block">Hình thức lấy sỉ:</span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEntryMode('single')}
+                      className={`py-1.5 rounded-lg text-[9px] font-bold border transition-colors cursor-pointer ${
+                        entryMode === 'single' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      Lẻ tự do
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEntryMode('ri_nhi')}
+                      disabled={!availableSizesForColor.some(s => s.unit_type === 'Ri nhí')}
+                      className={`py-1.5 rounded-lg text-[9px] font-bold border transition-colors cursor-pointer disabled:opacity-50 ${
+                        entryMode === 'ri_nhi' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      Ri nhí
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEntryMode('ri_dai')}
+                      disabled={!availableSizesForColor.some(s => s.unit_type === 'Ri đại')}
+                      className={`py-1.5 rounded-lg text-[9px] font-bold border transition-colors cursor-pointer disabled:opacity-50 ${
+                        entryMode === 'ri_dai' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      Ri đại
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEntryMode('ri_set');
+                        if (sizeSets.length > 0 && !selectedSizeSetId) {
+                          setSelectedSizeSetId(sizeSets[0].id);
+                        }
+                      }}
+                      className={`py-1.5 rounded-lg text-[9px] font-bold border transition-colors cursor-pointer ${
+                        entryMode === 'ri_set' ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      Ri nhóm
+                    </button>
+                  </div>
+                </div>
+
+                {/* Custom Ri set selector */}
+                {entryMode === 'ri_set' && (
+                  <div className="space-y-1 animate-fade-in text-xs">
+                    <span className="font-semibold text-slate-600 block">Chọn nhóm Ri tự tạo:</span>
+                    <select
+                      value={selectedSizeSetId || ''}
+                      onChange={(e) => setSelectedSizeSetId(e.target.value || null)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none bg-slate-50 font-bold"
+                    >
+                      <option value="">-- Chọn nhóm Ri --</option>
+                      {sizeSets.map(set => (
+                        <option key={set.id} value={set.id}>
+                          {set.name} ({set.sizes.join(', ')})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Ri Multiplier */}
+                {entryMode !== 'single' && (
+                  <div className="space-y-1 p-2.5 bg-blue-50/50 rounded-xl border border-blue-100 animate-fade-in">
+                    <span className="font-semibold text-blue-800 block">Số lượng Ri cần lấy:</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        value={riMultiplier}
+                        onChange={(e) => setRiMultiplier(parseInt(e.target.value, 10) || 1)}
+                        className="w-20 bg-white border border-slate-200 rounded-lg py-1 px-2 text-center font-bold"
+                      />
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        (= {riMultiplier} cái cho mỗi Size thuộc {
+                          entryMode === 'ri_nhi' ? 'Ri nhí' : 
+                          entryMode === 'ri_dai' ? 'Ri đại' : 
+                          (sizeSets.find(s => s.id === selectedSizeSetId)?.name || 'Ri nhóm')
+                        })
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Input Price */}
+                <div className="space-y-1">
+                  <span className="font-semibold text-slate-600 block">Đơn giá bán sỉ/lẻ (đ/cái) <span className="text-red-500">*</span></span>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    placeholder="Ví dụ: 85000, 120000"
+                    value={itemPrice}
+                    onChange={(e) => setItemPrice(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 focus:outline-none font-mono font-bold text-slate-900"
+                  />
+                </div>
+
+                {/* Sizes List with quantities */}
+                <div className="space-y-1.5">
+                  <span className="font-semibold text-slate-600 block">Số lượng cần bán theo từng Size:</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {availableSizesForColor.map(s => {
+                      let isDisabled = false;
+                      if (entryMode === 'ri_nhi' && s.unit_type !== 'Ri nhí') {
+                        isDisabled = true;
+                      } else if (entryMode === 'ri_dai' && s.unit_type !== 'Ri đại') {
+                        isDisabled = true;
+                      } else if (entryMode === 'ri_set') {
+                        const activeSet = sizeSets.find(set => set.id === selectedSizeSetId);
+                        isDisabled = activeSet 
+                          ? !activeSet.sizes.some((sz: string) => sz.trim() === s.size.trim()) 
+                          : true;
+                      }
+
+                      return (
+                        <div key={s.size} className={`flex items-center justify-between p-2 rounded-xl border ${
+                          isDisabled ? 'bg-slate-50 border-slate-100 opacity-40' : 'bg-slate-50/50 border-slate-200'
+                        }`}>
+                          <div className="space-y-0.5">
+                            <span className="font-mono font-bold text-slate-800 text-xs">Sz {s.size}</span>
+                            <span className="text-[10px] text-slate-400 block">Tồn: {s.quantity} cái</span>
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            disabled={isDisabled}
+                            value={sizeQuantities[s.size] || ''}
+                            onChange={(e) => handleSizeQtyChange(s.size, e.target.value)}
+                            placeholder="0"
+                            className="w-14 bg-white border border-slate-200 rounded-lg py-1 text-center font-mono font-bold text-slate-900 focus:outline-none"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Push to cart button */}
+                <button
+                  type="button"
+                  onClick={addToCart}
+                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                >
+                  Thêm vào hoá đơn tạm thời
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Column 2 & 3: Giant Invoice Summary & Printing and Checkout */}
+        <div className="lg:col-span-2 space-y-6">
+          <form onSubmit={handleSaveInvoice} className="bg-white rounded-2xl border border-slate-100 shadow-xs p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <FileTextIcon className="h-4 w-4 text-blue-600" /> Giỏ hàng & thanh toán
+              </h3>
+              <span className="font-mono text-[10px] font-semibold text-slate-400">
+                {cart.length} nhóm hàng phân loại
+              </span>
+            </div>
+
+            {/* Cart Items Table */}
+            {cart.length > 0 ? (
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs text-slate-500 border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-700 border-b border-slate-100 font-semibold uppercase text-[10px] tracking-wider">
+                      <th className="p-3">Hàng hoá</th>
+                      <th className="p-3 text-center">Phân loại</th>
+                      <th className="p-3 text-center">SL</th>
+                      <th className="p-3 text-right">Đơn giá</th>
+                      <th className="p-3 text-right">Thành tiền</th>
+                      <th className="p-3 text-center w-12">Xoá</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {cart.map(item => (
+                      <tr key={item.id} className="hover:bg-slate-50/50">
+                        <td className="p-3">
+                          <div className="font-bold text-slate-800">{item.product_name}</div>
+                          <span className="font-mono bg-slate-100 text-slate-600 px-1 py-0.5 rounded text-[10px] font-bold border border-slate-200">
+                            {item.product_code}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center space-y-0.5">
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 font-bold rounded-full text-[10px] whitespace-nowrap block w-fit mx-auto border border-blue-100">
+                            Màu {item.color}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400 block">
+                            Size {item.size} ({item.unit_type})
+                          </span>
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-slate-900">
+                          {item.quantity} cái
+                        </td>
+                        <td className="p-3 text-right font-mono font-medium text-slate-600">
+                          {formatCurrency(item.unit_price)}
+                        </td>
+                        <td className="p-3 text-right font-mono font-bold text-slate-900">
+                          {formatCurrency(item.subtotal)}
+                        </td>
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => removeFromCart(item.id)}
+                            className="p-1 text-slate-400 hover:text-red-500 rounded cursor-pointer"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="py-16 text-center text-slate-400">
+                <ShoppingBag className="h-10 w-10 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs">Chưa có sản phẩm nào trong giỏ hàng.</p>
+                <p className="text-[10px] text-slate-400 mt-1">Chọn mã hàng, màu sắc và size bên trái để thêm vào đơn hàng.</p>
+              </div>
+            )}
+
+            {/* Calculations & Payment fields */}
+            {cart.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                {/* Note */}
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <span className="text-xs font-semibold text-slate-600 block">Ghi chú phiếu giao hàng:</span>
+                    <textarea
+                      value={invoiceNote}
+                      onChange={(e) => setInvoiceNote(e.target.value)}
+                      placeholder="Ghi chú giao hàng nhanh, gửi xe đò..."
+                      rows={3}
+                      className="w-full px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-200 focus:outline-none resize-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Math check */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-3.5 text-xs">
+                  <div className="flex items-center justify-between font-bold text-slate-700">
+                    <span>Tổng tiền hàng sỉ:</span>
+                    <span className="font-mono text-sm text-slate-950">{formatCurrency(totalAmount)}</span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="font-semibold text-slate-600 block">Số tiền đã thanh toán (đ):</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={paidAmount}
+                      onChange={(e) => setPaidAmount(e.target.value)}
+                      className="w-full bg-white px-3.5 py-2 rounded-lg border border-slate-200 font-mono font-bold text-slate-900 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between font-bold border-t border-slate-200 pt-3">
+                    <span className="text-red-600">Ghi nợ công nợ gối đầu:</span>
+                    <span className="font-mono text-sm text-red-600">{formatCurrency(debtAmount >= 0 ? debtAmount : 0)}</span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl shadow-md transition-all cursor-pointer"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Đang lưu & trừ kho...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-4 w-4" />
+                          Xuất hoá đơn & Trừ kho
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </form>
+
+          {/* PRINT VIEW SECTION (MẪU PHIẾU GIAO HÀNG CHUẨN IN ẤN) */}
+          {createdInvoice && (
+            <div className="bg-white p-6 rounded-2xl border-2 border-dashed border-slate-200 shadow-sm space-y-4 animate-fade-in relative">
+              <div className="absolute top-4 right-4 flex gap-2 no-print">
+                <button
+                  onClick={handlePrint}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                >
+                  <Printer className="h-3.5 w-3.5" /> In phiếu giao hàng
+                </button>
+                <button
+                  onClick={() => setCreatedInvoice(null)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-500 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                >
+                  Đóng mẫu in
+                </button>
+              </div>
+
+              {/* Printable Invoice Sheet */}
+              <div id="print-area" className="bg-white text-slate-900 p-4 max-w-[210mm] mx-auto text-xs leading-relaxed font-sans border border-slate-300">
+                <div className="text-center space-y-1 mb-6">
+                  <h1 className="text-lg font-bold uppercase tracking-wider">PHIẾU GIAO HÀNG</h1>
+                  <p className="font-mono font-semibold text-slate-600 text-[10px]">Mã đơn: {createdInvoice.invoice_code}</p>
+                  <p className="text-slate-500 text-[10px]">Ngày bán: {new Date(createdInvoice.sale_date).toLocaleString('vi-VN')}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-6 border-b border-slate-200 pb-4">
+                  <div className="space-y-1">
+                    <p><span className="text-slate-500">Khách hàng:</span> <b className="text-slate-900">{createdInvoice.customer_name_snapshot}</b></p>
+                    <p><span className="text-slate-500">Điện thoại:</span> <span className="font-mono font-medium">{createdInvoice.customer_phone_snapshot || 'N/A'}</span></p>
+                    <p><span className="text-slate-500">Địa chỉ:</span> <span>{createdInvoice.customer_address_snapshot || 'N/A'}</span></p>
+                  </div>
+                  <div className="space-y-1 text-right">
+                    <p><span className="text-slate-500">Đơn vị bán hàng:</span> <b>XƯỞNG SỈ THỜI TRANG</b></p>
+                    <p><span className="text-slate-500">Địa chỉ:</span> <span>Kho hàng sỉ toàn quốc</span></p>
+                    <p><span className="text-slate-500">Ghi chú:</span> <span className="italic text-slate-600">{createdInvoice.note || 'N/A'}</span></p>
+                  </div>
+                </div>
+
+                {/* Printable Table */}
+                <table className="w-full border-collapse border border-slate-400 text-left mb-6">
+                  <thead>
+                    <tr className="bg-slate-100 border-b border-slate-400">
+                      <th className="border border-slate-400 p-2 font-bold text-center w-10">STT</th>
+                      <th className="border border-slate-400 p-2 font-bold">Tên hàng hoá</th>
+                      <th className="border border-slate-400 p-2 font-bold text-center w-14">ĐVT</th>
+                      <th className="border border-slate-400 p-2 font-bold text-center w-14">SL</th>
+                      <th className="border border-slate-400 p-2 font-bold text-right w-24">Đơn giá</th>
+                      <th className="border border-slate-400 p-2 font-bold text-right w-28">Thành tiền</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {createdInvoice.items.map((item: any, idx: number) => (
+                      <tr key={idx}>
+                        <td className="border border-slate-400 p-2 text-center font-mono">{idx + 1}</td>
+                        <td className="border border-slate-400 p-2 font-medium">
+                          {item.product_name} 
+                          <span className="font-mono text-[10px] text-slate-500 ml-1">
+                            ({item.product_code} - Màu {item.color} - Size {item.size})
+                          </span>
+                        </td>
+                        <td className="border border-slate-400 p-2 text-center text-slate-600">{item.unit_type}</td>
+                        <td className="border border-slate-400 p-2 text-center font-mono font-bold">{item.quantity}</td>
+                        <td className="border border-slate-400 p-2 text-right font-mono">{formatCurrency(item.unit_price)}</td>
+                        <td className="border border-slate-400 p-2 text-right font-mono font-bold">{formatCurrency(item.subtotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Total Calc Area */}
+                <div className="w-fit ml-auto min-w-[280px] space-y-1.5 border-t border-slate-300 pt-3 mb-8 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Cộng tiền hàng:</span>
+                    <span className="font-mono font-bold">{formatCurrency(createdInvoice.total_amount)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Đã thu khách hàng:</span>
+                    <span className="font-mono">{formatCurrency(createdInvoice.paid_amount)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-slate-200 pt-1.5 text-red-600">
+                    <span>Tổng nợ cũ / Nợ gối đầu:</span>
+                    <span className="font-mono">{formatCurrency(createdInvoice.debt_amount)}</span>
+                  </div>
+                </div>
+
+                {/* Sign area */}
+                <div className="grid grid-cols-2 text-center mt-12 mb-6">
+                  <div className="space-y-16">
+                    <p className="font-semibold uppercase text-slate-700">NGƯỜI MUA HÀNG</p>
+                    <p className="text-slate-400 italic text-[10px]">(Ký, ghi rõ họ tên)</p>
+                  </div>
+                  <div className="space-y-16">
+                    <p className="font-semibold uppercase text-slate-700">NGƯỜI BÁN HÀNG</p>
+                    <p className="text-slate-400 italic text-[10px]">(Ký, ghi rõ họ tên)</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Simple fallback icon replacement
+function FileTextIcon(props: any) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M10 9H8" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+    </svg>
+  );
+}
