@@ -119,6 +119,11 @@ export const buildExportSizeLabel = (item: ExportRow) => {
   return item.sizes.length > 0 ? compactSizeLabel(item.sizes) : '';
 };
 
+const normalizeUnitType = (value?: string) => {
+  if (!value) return 'Ri';
+  return value.replace(/\s*\([^)]*\)\s*/g, '').trim() || 'Ri';
+};
+
 export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
   const rows = groupInvoiceItemsForExport(invoice.items || invoice.invoice_items || []);
   const html = `
@@ -126,22 +131,90 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
       <head>
         <meta charset="UTF-8" />
         <style>
-          body { font-family: Arial, Tahoma, sans-serif; font-size: 12px; }
-          table { border-collapse: collapse; width: 100%; }
-          th, td { border: 1px solid #555; padding: 5px; }
-          th { font-weight: bold; text-align: center; }
-          .right { text-align: right; }
-          .center { text-align: center; }
-          .title { font-size: 16px; font-weight: bold; text-align: center; }
+          @page { margin: 0.45in; }
+          html, body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Tahoma, sans-serif;
+            font-size: 12px;
+            color: #000;
+          }
+          .sheet {
+            width: 100%;
+            padding: 18px 20px;
+            box-sizing: border-box;
+          }
+          .title {
+            font-size: 17px;
+            font-weight: bold;
+            text-align: center;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+          }
+          .code {
+            text-align: center;
+            margin: 0 0 12px;
+          }
+          .customer {
+            margin: 0 0 4px;
+          }
+          table {
+            border-collapse: collapse;
+            table-layout: fixed;
+            width: 100%;
+            border: 2px solid #333;
+          }
+          th, td {
+            border: 1px solid #555;
+            padding: 6px 6px;
+            vertical-align: middle;
+            mso-border-alt: solid #555 .75pt;
+          }
+          th {
+            font-weight: bold;
+            text-align: center;
+            background: #f2f2f2;
+          }
+          .right {
+            text-align: right;
+            white-space: nowrap;
+          }
+          .center {
+            text-align: center;
+          }
+          .nowrap {
+            white-space: nowrap;
+          }
+          .total-label {
+            text-align: center;
+            font-weight: bold;
+          }
+          .total-value {
+            text-align: right;
+            font-weight: bold;
+            white-space: nowrap;
+          }
         </style>
       </head>
       <body>
+        <div class="sheet">
         <div class="title">PHIẾU GIAO HÀNG</div>
-        <p class="center">Mã HĐ: ${escapeHtml(invoice.invoice_code)}</p>
-        <p><b>Khách hàng:</b> ${escapeHtml(invoice.customer_name_snapshot || 'Khách lẻ vãng lai')}</p>
-        <p><b>Địa chỉ:</b> ${escapeHtml(invoice.customer_address_snapshot || '')}</p>
-        <p><b>Điện thoại:</b> ${escapeHtml(invoice.customer_phone_snapshot || '')}</p>
+        <p class="code">Mã HĐ: ${escapeHtml(invoice.invoice_code)}</p>
+        <p class="customer"><b>Khách hàng:</b> ${escapeHtml(invoice.customer_name_snapshot || 'Khách lẻ vãng lai')}</p>
+        <p class="customer"><b>Địa chỉ:</b> ${escapeHtml(invoice.customer_address_snapshot || '')}</p>
+        <p class="customer"><b>Điện thoại:</b> ${escapeHtml(invoice.customer_phone_snapshot || '')}</p>
         <table>
+          <colgroup>
+            <col style="width: 42px;" />
+            <col style="width: 145px;" />
+            <col style="width: 68px;" />
+            <col style="width: 64px;" />
+            <col style="width: 72px;" />
+            <col style="width: 54px;" />
+            <col style="width: 92px;" />
+            <col style="width: 104px;" />
+            <col style="width: 98px;" />
+          </colgroup>
           <thead>
             <tr>
               <th>STT</th>
@@ -162,19 +235,20 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
                 <td>${escapeHtml(buildExportItemName(item))}</td>
                 <td class="center">${escapeHtml(item.color || '')}</td>
                 <td class="center">${escapeHtml(buildExportSizeLabel(item))}</td>
-                <td class="center">${escapeHtml(item.unit_type || 'Ri')}</td>
+                <td class="center nowrap">${escapeHtml(normalizeUnitType(item.unit_type))}</td>
                 <td class="center">${formatNumber(item.quantityPerSize !== null && item.sizes.length > 1 ? item.quantityPerSize : item.totalPieces)}</td>
                 <td class="right">${formatNumber(item.unit_price)}</td>
                 <td class="right">${formatNumber(item.subtotal)}</td>
                 <td>${escapeHtml(item.note || '')}</td>
               </tr>
             `).join('')}
-            <tr><td colspan="8" class="center">Cộng tiền hàng</td><td class="right"><b>${formatNumber(invoice.total_amount)}</b></td></tr>
-            <tr><td colspan="8" class="center">Nợ cũ</td><td class="right"><b>0</b></td></tr>
-            <tr><td colspan="8" class="center">Tổng tiền thanh toán</td><td class="right"><b>${formatNumber(invoice.total_amount)}</b></td></tr>
+            <tr><td colspan="8" class="total-label">Cộng tiền hàng</td><td class="total-value">${formatNumber(invoice.total_amount)}</td></tr>
+            <tr><td colspan="8" class="total-label">Nợ cũ</td><td class="total-value">0</td></tr>
+            <tr><td colspan="8" class="total-label">Tổng tiền thanh toán</td><td class="total-value">${formatNumber(invoice.total_amount)}</td></tr>
           </tbody>
         </table>
         <p class="right">${escapeHtml(formatDate(invoice.sale_date))}</p>
+        </div>
       </body>
     </html>
   `;
