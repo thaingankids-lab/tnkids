@@ -71,6 +71,10 @@ const escapeHtml = (value: unknown) => {
     .replace(/"/g, '&quot;');
 };
 
+const importFromUrl = (url: string): Promise<any> => {
+  return new Function('url', 'return import(url)')(url);
+};
+
 export const groupInvoiceItemsForExport = (items: InvoiceExportItem[]): ExportRow[] => {
   const groups: Record<string, ExportRow> = {};
 
@@ -194,8 +198,8 @@ export const downloadInvoicePdf = async (invoice: InvoiceExportData, elementId =
   }
 
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-    import('html2canvas'),
-    import('jspdf')
+    importFromUrl('https://esm.sh/html2canvas@1.4.1'),
+    importFromUrl('https://esm.sh/jspdf@4.2.1')
   ]);
 
   const canvas = await html2canvas(element, {
