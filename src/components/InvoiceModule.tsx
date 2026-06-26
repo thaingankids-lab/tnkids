@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { Customer, Product, InventoryBatch } from '../types';
+import PrintableDeliveryNote from './PrintableDeliveryNote';
 import { 
   Plus, 
   Trash2, 
@@ -29,6 +30,20 @@ interface CartItem {
   unit_type: string; // 'Ri nhí', 'Ri đại', 'Tuỳ chọn'
   batch_id: string; // Reference to inventory_batches.id to subtract stock later
   available_qty: number;
+}
+
+interface CartGroup {
+  key: string;
+  product_code: string;
+  product_name: string;
+  color: string;
+  unit_type: string;
+  unit_price: number;
+  sizes: string[];
+  quantityPerSize: number | null;
+  totalPieces: number;
+  subtotal: number;
+  itemIds: string[];
 }
 
 export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?: () => void }) {
@@ -211,6 +226,46 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
     }));
   };
 
+  const selectedRiSummary = useMemo(() => {
+    if (entryMode === 'single') return null;
+
+    let label = 'Ri nhóm';
+    let sizesInGroup = availableSizesForColor;
+
+    if (entryMode === 'ri_nhi') {
+      label = 'Ri nhí';
+      sizesInGroup = availableSizesForColor.filter(size => size.unit_type === 'Ri nhí');
+    } else if (entryMode === 'ri_dai') {
+      label = 'Ri đại';
+      sizesInGroup = availableSizesForColor.filter(size => size.unit_type === 'Ri đại');
+    } else if (entryMode === 'ri_set' && selectedSizeSetId) {
+      const activeSet = sizeSets.find(set => set.id === selectedSizeSetId);
+      label = activeSet?.name || 'Ri nhóm';
+      sizesInGroup = activeSet
+        ? availableSizesForColor.filter(size => activeSet.sizes.some((setSize: string) => setSize.trim() === size.size.trim()))
+        : [];
+    }
+
+    const sortedSizes = [...sizesInGroup].sort((a, b) => {
+      const numA = parseInt(a.size, 10);
+      const numB = parseInt(b.size, 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.size.localeCompare(b.size);
+    });
+
+    const maxRi = sortedSizes.length > 0 ? Math.min(...sortedSizes.map(size => size.quantity)) : 0;
+    const totalPieces = sortedSizes.length * riMultiplier;
+    const price = parseInt(itemPrice, 10) || 0;
+
+    return {
+      label,
+      sizes: sortedSizes,
+      maxRi,
+      totalPieces,
+      estimatedTotal: totalPieces * price
+    };
+  }, [entryMode, selectedSizeSetId, availableSizesForColor, sizeSets, riMultiplier, itemPrice]);
+
   const addToCart = () => {
     const prod = products.find(p => p.id === selectedProductId);
     const price = parseInt(itemPrice, 10);
@@ -325,6 +380,61 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
 
   const removeFromCart = (id: string) => {
     setCart(cart.filter(item => item.id !== id));
+  };
+
+  const groupedCart = useMemo<CartGroup[]>(() => {
+    const groups: Record<string, CartGroup> = {};
+
+    cart.forEach(item => {
+      const key = [
+        item.product_id,
+        item.product_code,
+        item.color,
+        item.unit_type,
+        item.unit_price
+      ].join('|');
+
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          product_code: item.product_code,
+          product_name: item.product_name,
+          color: item.color,
+          unit_type: item.unit_type,
+          unit_price: item.unit_price,
+          sizes: [],
+          quantityPerSize: item.quantity,
+          totalPieces: 0,
+          subtotal: 0,
+          itemIds: []
+        };
+      }
+
+      groups[key].sizes.push(item.size);
+      groups[key].totalPieces += item.quantity;
+      groups[key].subtotal += item.subtotal;
+      groups[key].itemIds.push(item.id);
+
+      if (groups[key].quantityPerSize !== item.quantity) {
+        groups[key].quantityPerSize = null;
+      }
+    });
+
+    return Object.values(groups).map(group => ({
+      ...group,
+      sizes: group.sizes.sort((a, b) => {
+        const numA = parseInt(a, 10);
+        const numB = parseInt(b, 10);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return a.localeCompare(b);
+      })
+    }));
+  }, [cart]);
+
+  const removeCartGroup = (key: string) => {
+    const group = groupedCart.find(item => item.key === key);
+    if (!group) return;
+    setCart(cart.filter(item => !group.itemIds.includes(item.id)));
   };
 
   const totalAmount = cart.reduce((sum, item) => sum + item.subtotal, 0);
@@ -772,26 +882,12 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                 </div>
 
                 {/* Sizes List with quantities */}
-                <div className="space-y-1.5">
-                  <span className="font-semibold text-slate-600 block">Số lượng cần bán theo từng Size:</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {availableSizesForColor.map(s => {
-                      let isDisabled = false;
-                      if (entryMode === 'ri_nhi' && s.unit_type !== 'Ri nhí') {
-                        isDisabled = true;
-                      } else if (entryMode === 'ri_dai' && s.unit_type !== 'Ri đại') {
-                        isDisabled = true;
-                      } else if (entryMode === 'ri_set') {
-                        const activeSet = sizeSets.find(set => set.id === selectedSizeSetId);
-                        isDisabled = activeSet 
-                          ? !activeSet.sizes.some((sz: string) => sz.trim() === s.size.trim()) 
-                          : true;
-                      }
-
-                      return (
-                        <div key={s.size} className={`flex items-center justify-between p-2 rounded-xl border ${
-                          isDisabled ? 'bg-slate-50 border-slate-100 opacity-40' : 'bg-slate-50/50 border-slate-200'
-                        }`}>
+                {entryMode === 'single' ? (
+                  <div className="space-y-1.5">
+                    <span className="font-semibold text-slate-600 block">Số lượng cần bán theo từng Size:</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {availableSizesForColor.map(s => (
+                        <div key={s.size} className="flex items-center justify-between p-2 rounded-xl border bg-slate-50/50 border-slate-200">
                           <div className="space-y-0.5">
                             <span className="font-mono font-bold text-slate-800 text-xs">Sz {s.size}</span>
                             <span className="text-[10px] text-slate-400 block">Tồn: {s.quantity} cái</span>
@@ -799,17 +895,51 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                           <input
                             type="number"
                             min="0"
-                            disabled={isDisabled}
                             value={sizeQuantities[s.size] || ''}
                             onChange={(e) => handleSizeQtyChange(s.size, e.target.value)}
                             placeholder="0"
                             className="w-14 bg-white border border-slate-200 rounded-lg py-1 text-center font-mono font-bold text-slate-900 focus:outline-none"
                           />
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : selectedRiSummary && (
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-xs space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="font-bold text-blue-900 block">Đang chọn: {selectedRiSummary.label}</span>
+                        <span className="text-slate-500 block mt-1">
+                          Size trong nhóm: {selectedRiSummary.sizes.map(size => size.size).join(', ') || 'Chưa có tồn kho'}
+                        </span>
+                      </div>
+                      <span className="px-2.5 py-1 bg-white border border-blue-100 rounded-lg font-mono font-black text-blue-700">
+                        {riMultiplier} ri
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="bg-white border border-blue-100 rounded-xl p-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Tối đa bán</span>
+                        <span className="font-mono font-black text-slate-900">{selectedRiSummary.maxRi} ri</span>
+                      </div>
+                      <div className="bg-white border border-blue-100 rounded-xl p-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Tổng cái</span>
+                        <span className="font-mono font-black text-slate-900">{selectedRiSummary.totalPieces}</span>
+                      </div>
+                      <div className="bg-white border border-blue-100 rounded-xl p-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Tạm tính</span>
+                        <span className="font-mono font-black text-slate-900">{formatCurrency(selectedRiSummary.estimatedTotal)}</span>
+                      </div>
+                    </div>
+
+                    {selectedRiSummary.maxRi < riMultiplier && (
+                      <div className="text-red-600 font-semibold bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                        Không đủ tồn kho để lấy {riMultiplier} ri. Nhóm này hiện chỉ đủ tối đa {selectedRiSummary.maxRi} ri.
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Push to cart button */}
                 <button
@@ -832,7 +962,7 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                 <FileTextIcon className="h-4 w-4 text-blue-600" /> Giỏ hàng & thanh toán
               </h3>
               <span className="font-mono text-[10px] font-semibold text-slate-400">
-                {cart.length} nhóm hàng phân loại
+                {groupedCart.length} nhóm hàng phân loại
               </span>
             </div>
 
@@ -851,8 +981,8 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {cart.map(item => (
-                      <tr key={item.id} className="hover:bg-slate-50/50">
+                    {groupedCart.map(item => (
+                      <tr key={item.key} className="hover:bg-slate-50/50">
                         <td className="p-3">
                           <div className="font-bold text-slate-800">{item.product_name}</div>
                           <span className="font-mono bg-slate-100 text-slate-600 px-1 py-0.5 rounded text-[10px] font-bold border border-slate-200">
@@ -864,11 +994,13 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                             Màu {item.color}
                           </span>
                           <span className="text-[10px] font-mono text-slate-400 block">
-                            Size {item.size} ({item.unit_type})
+                            {item.unit_type} ({item.sizes.join(', ')})
                           </span>
                         </td>
                         <td className="p-3 text-center font-mono font-bold text-slate-900">
-                          {item.quantity} cái
+                          {item.quantityPerSize !== null && item.sizes.length > 1
+                            ? `${item.quantityPerSize} ri`
+                            : `${item.totalPieces} cái`}
                         </td>
                         <td className="p-3 text-right font-mono font-medium text-slate-600">
                           {formatCurrency(item.unit_price)}
@@ -879,7 +1011,7 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                         <td className="p-3 text-center">
                           <button
                             type="button"
-                            onClick={() => removeFromCart(item.id)}
+                            onClick={() => removeCartGroup(item.key)}
                             className="p-1 text-slate-400 hover:text-red-500 rounded cursor-pointer"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -980,86 +1112,7 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
                 </button>
               </div>
 
-              {/* Printable Invoice Sheet */}
-              <div id="print-area" className="bg-white text-slate-900 p-4 max-w-[210mm] mx-auto text-xs leading-relaxed font-sans border border-slate-300">
-                <div className="text-center space-y-1 mb-6">
-                  <h1 className="text-lg font-bold uppercase tracking-wider">PHIẾU GIAO HÀNG</h1>
-                  <p className="font-mono font-semibold text-slate-600 text-[10px]">Mã đơn: {createdInvoice.invoice_code}</p>
-                  <p className="text-slate-500 text-[10px]">Ngày bán: {new Date(createdInvoice.sale_date).toLocaleString('vi-VN')}</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 mb-6 border-b border-slate-200 pb-4">
-                  <div className="space-y-1">
-                    <p><span className="text-slate-500">Khách hàng:</span> <b className="text-slate-900">{createdInvoice.customer_name_snapshot}</b></p>
-                    <p><span className="text-slate-500">Điện thoại:</span> <span className="font-mono font-medium">{createdInvoice.customer_phone_snapshot || 'N/A'}</span></p>
-                    <p><span className="text-slate-500">Địa chỉ:</span> <span>{createdInvoice.customer_address_snapshot || 'N/A'}</span></p>
-                  </div>
-                  <div className="space-y-1 text-right">
-                    <p><span className="text-slate-500">Đơn vị bán hàng:</span> <b>XƯỞNG SỈ THỜI TRANG</b></p>
-                    <p><span className="text-slate-500">Địa chỉ:</span> <span>Kho hàng sỉ toàn quốc</span></p>
-                    <p><span className="text-slate-500">Ghi chú:</span> <span className="italic text-slate-600">{createdInvoice.note || 'N/A'}</span></p>
-                  </div>
-                </div>
-
-                {/* Printable Table */}
-                <table className="w-full border-collapse border border-slate-400 text-left mb-6">
-                  <thead>
-                    <tr className="bg-slate-100 border-b border-slate-400">
-                      <th className="border border-slate-400 p-2 font-bold text-center w-10">STT</th>
-                      <th className="border border-slate-400 p-2 font-bold">Tên hàng hoá</th>
-                      <th className="border border-slate-400 p-2 font-bold text-center w-14">ĐVT</th>
-                      <th className="border border-slate-400 p-2 font-bold text-center w-14">SL</th>
-                      <th className="border border-slate-400 p-2 font-bold text-right w-24">Đơn giá</th>
-                      <th className="border border-slate-400 p-2 font-bold text-right w-28">Thành tiền</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {createdInvoice.items.map((item: any, idx: number) => (
-                      <tr key={idx}>
-                        <td className="border border-slate-400 p-2 text-center font-mono">{idx + 1}</td>
-                        <td className="border border-slate-400 p-2 font-medium">
-                          {item.product_name} 
-                          <span className="font-mono text-[10px] text-slate-500 ml-1">
-                            ({item.product_code} - Màu {item.color} - Size {item.size})
-                          </span>
-                        </td>
-                        <td className="border border-slate-400 p-2 text-center text-slate-600">{item.unit_type}</td>
-                        <td className="border border-slate-400 p-2 text-center font-mono font-bold">{item.quantity}</td>
-                        <td className="border border-slate-400 p-2 text-right font-mono">{formatCurrency(item.unit_price)}</td>
-                        <td className="border border-slate-400 p-2 text-right font-mono font-bold">{formatCurrency(item.subtotal)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                {/* Total Calc Area */}
-                <div className="w-fit ml-auto min-w-[280px] space-y-1.5 border-t border-slate-300 pt-3 mb-8 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Cộng tiền hàng:</span>
-                    <span className="font-mono font-bold">{formatCurrency(createdInvoice.total_amount)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>Đã thu khách hàng:</span>
-                    <span className="font-mono">{formatCurrency(createdInvoice.paid_amount)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold border-t border-slate-200 pt-1.5 text-red-600">
-                    <span>Tổng nợ cũ / Nợ gối đầu:</span>
-                    <span className="font-mono">{formatCurrency(createdInvoice.debt_amount)}</span>
-                  </div>
-                </div>
-
-                {/* Sign area */}
-                <div className="grid grid-cols-2 text-center mt-12 mb-6">
-                  <div className="space-y-16">
-                    <p className="font-semibold uppercase text-slate-700">NGƯỜI MUA HÀNG</p>
-                    <p className="text-slate-400 italic text-[10px]">(Ký, ghi rõ họ tên)</p>
-                  </div>
-                  <div className="space-y-16">
-                    <p className="font-semibold uppercase text-slate-700">NGƯỜI BÁN HÀNG</p>
-                    <p className="text-slate-400 italic text-[10px]">(Ký, ghi rõ họ tên)</p>
-                  </div>
-                </div>
-              </div>
+              <PrintableDeliveryNote invoice={createdInvoice} />
             </div>
           )}
         </div>
