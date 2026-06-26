@@ -166,15 +166,17 @@ export const downloadInvoiceExcel = (invoice: InvoiceExportData) => {
           }
           th, td {
             border: 1px solid #555;
-            padding: 7px 8px;
+            padding: 8px 8px;
             vertical-align: middle;
             mso-border-alt: solid #555 .75pt;
-            line-height: 1.35;
+            line-height: 18px;
+            height: 28px;
           }
           th {
             font-weight: bold;
             text-align: center;
             background: #f2f2f2;
+            height: 30px;
           }
           .right {
             text-align: right;
