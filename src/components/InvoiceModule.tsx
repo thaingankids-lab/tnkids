@@ -578,24 +578,14 @@ export default function InvoiceModule({ onInvoiceCreated }: { onInvoiceCreated?:
         acc[item.batch_id] = (acc[item.batch_id] || 0) + item.quantity;
         return acc;
       }, {});
-      const updatedAt = new Date().toISOString();
-
-      await Promise.all(Object.entries(quantityByBatch).map(async ([batchId, quantitySold]) => {
-        const batch = stockBatches.find(item => item.id === batchId);
-        const currentQty = batch?.quantity || 0;
-        const soldQty = Number(quantitySold) || 0;
-        if (!batch || currentQty < soldQty) {
-          const cartItem = cart.find(item => item.batch_id === batchId);
-          throw new Error(`Không đủ tồn kho cho ${cartItem?.product_code || 'sản phẩm'} - màu ${cartItem?.color || ''} - size ${cartItem?.size || ''}. Hiện còn ${currentQty} cái, cần ${soldQty} cái.`);
-        }
-
-        const { error: updateStockErr } = await supabase
-          .from('inventory_batches')
-          .update({ quantity: currentQty - soldQty, updated_at: updatedAt })
-          .eq('id', batchId);
-
-        if (updateStockErr) throw updateStockErr;
+      const stockAdjustments = Object.entries(quantityByBatch).map(([batchId, quantity]) => ({
+        batch_id: batchId,
+        quantity
       }));
+      const { error: stockRpcErr } = await supabase.rpc('decrement_inventory_stock', {
+        p_adjustments: stockAdjustments
+      });
+      if (stockRpcErr) throw stockRpcErr;
 
       // 5. Create Payment record if paid amount > 0
       const paid = parseInt(paidAmount, 10) || 0;

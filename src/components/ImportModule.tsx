@@ -514,50 +514,10 @@ export default function ImportModule() {
         });
       });
 
-      const { data: existingBatches, error: existingError } = await supabase
-        .from('inventory_batches')
-        .select('id, quantity, color, size, size_set_id')
-        .eq('product_id', productId);
-
-      if (existingError) throw existingError;
-
-      const makeBatchKey = (item: { color: string; size: string; size_set_id: string | null }) => {
-        return `${item.color}|${item.size}|${item.size_set_id || 'no_set'}`;
-      };
-      const existingByKey = new Map((existingBatches || []).map(item => [makeBatchKey(item), item]));
-      const rowsToInsert: any[] = [];
-      const updatesToRun: Promise<any>[] = [];
-      const updatedAt = new Date().toISOString();
-
-      batchInserts.forEach(item => {
-        const existing = existingByKey.get(makeBatchKey(item));
-        if (existing) {
-          updatesToRun.push(
-            (async () => {
-              return supabase
-                .from('inventory_batches')
-                .update({
-                  quantity: existing.quantity + item.quantity,
-                  updated_at: updatedAt
-                })
-                .eq('id', existing.id);
-            })()
-          );
-        } else {
-          rowsToInsert.push(item);
-        }
+      const { error: stockRpcError } = await supabase.rpc('increment_inventory_stock', {
+        p_items: batchInserts
       });
-
-      const updateResults = await Promise.all(updatesToRun);
-      const updateError = updateResults.find(result => result.error)?.error;
-      if (updateError) throw updateError;
-
-      if (rowsToInsert.length > 0) {
-        const { error: insertError } = await supabase
-          .from('inventory_batches')
-          .insert(rowsToInsert);
-        if (insertError) throw insertError;
-      }
+      if (stockRpcError) throw stockRpcError;
 
       setMessage({ type: 'success', text: `Đã nhập kho thành công lô hàng (${totalQty} cái)! Dữ liệu đã đồng bộ lên Supabase.` });
       
