@@ -12,7 +12,8 @@ import {
   ArrowUpDown,
   TrendingDown,
   ChevronDown,
-  Edit3
+  Edit3,
+  MoreVertical
 } from 'lucide-react';
 
 interface StockItem {
@@ -99,6 +100,31 @@ const getColorBadgeStyle = (color: string) => {
   return 'bg-white/25 text-white border border-white/30 backdrop-blur-xs';
 };
 
+const getColorCardStyle = (color: string) => {
+  const c = color.trim().toLowerCase();
+  if (c === 'vàng' || c === 'yellow') return 'bg-yellow-50 border-yellow-300 hover:border-yellow-400';
+  if (c === 'đỏ' || c === 'red') return 'bg-red-50 border-red-300 hover:border-red-400';
+  if (c === 'xanh' || c === 'blue') return 'bg-blue-50 border-blue-300 hover:border-blue-400';
+  if (c === 'tím' || c === 'purple') return 'bg-purple-50 border-purple-300 hover:border-purple-400';
+  if (c === 'đen' || c === 'black') return 'bg-slate-900 border-slate-800 text-white hover:border-slate-600';
+  if (c === 'trắng' || c === 'white') return 'bg-white border-slate-300 hover:border-slate-400';
+  if (c === 'hồng' || c === 'pink') return 'bg-rose-50 border-rose-300 hover:border-rose-400';
+  if (c === 'cam' || c === 'orange') return 'bg-orange-50 border-orange-300 hover:border-orange-400';
+  return 'bg-slate-50 border-slate-300 hover:border-slate-400';
+};
+
+const getStockStatus = (quantity: number) => {
+  if (quantity <= 0) return { label: 'Hết hàng', className: 'bg-red-600 text-white' };
+  if (quantity <= 10) return { label: 'Sắp hết', className: 'bg-amber-500 text-white' };
+  return { label: 'Còn hàng', className: 'bg-emerald-600 text-white' };
+};
+
+const getSizeChipStyle = (quantity: number) => {
+  if (quantity <= 0) return 'bg-slate-100 border-slate-300 text-slate-500';
+  if (quantity <= 10) return 'bg-amber-50 border-amber-300 text-amber-800';
+  return 'bg-white/80 border-slate-200 text-slate-800';
+};
+
 export default function InventoryModule() {
   const [loading, setLoading] = useState(true);
   const [stock, setStock] = useState<StockItem[]>([]);
@@ -118,12 +144,13 @@ export default function InventoryModule() {
   const [selectedProductCode, setSelectedProductCode] = useState<string | null>(null);
   const [selectedSizeGroup, setSelectedSizeGroup] = useState<SizeGroupCard | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<GroupCard | null>(null);
+  const [openColorMenuKey, setOpenColorMenuKey] = useState<string | null>(null);
 
   // Custom Deletion Confirmation State
   const [confirmDelete, setConfirmDelete] = useState<{
     isOpen: boolean;
     itemId: string | null;
-    deleteType: 'item' | 'product' | null;
+    deleteType: 'item' | 'product' | 'color_group' | null;
     title: string;
     message: string;
   }>({
@@ -300,6 +327,17 @@ export default function InventoryModule() {
     });
   };
 
+  const handleDeleteColorGroupClick = (group: GroupCard) => {
+    setConfirmDelete({
+      isOpen: true,
+      itemId: group.sizes.map(size => size.inventory_id).join(','),
+      deleteType: 'color_group',
+      title: 'Xác nhận xoá màu này',
+      message: `Bạn có chắc chắn muốn xoá toàn bộ màu "${group.color}" trong nhóm "${group.size_set_name}" không? Thao tác này sẽ xoá ${group.sizes.length} size và tổng ${group.totalQuantity} cái, không thể khôi phục.`
+    });
+    setOpenColorMenuKey(null);
+  };
+
   const executeDelete = async () => {
     if (!confirmDelete.itemId) return;
     setActionLoading(true);
@@ -343,6 +381,19 @@ export default function InventoryModule() {
         setSelectedGroup(null);
         setConfirmDelete({ isOpen: false, itemId: null, deleteType: null, title: '', message: '' });
         applyStockData(stock.filter(item => item.product_id !== productId));
+      } else if (confirmDelete.deleteType === 'color_group') {
+        const idsToDelete = confirmDelete.itemId.split(',').filter(Boolean);
+        const { error } = await supabase
+          .from('inventory_batches')
+          .delete()
+          .in('id', idsToDelete);
+
+        if (error) throw error;
+
+        showToast('Đã xoá toàn bộ màu đã chọn khỏi tồn kho.', 'success');
+        setConfirmDelete({ isOpen: false, itemId: null, deleteType: null, title: '', message: '' });
+        setSelectedGroup(null);
+        applyStockData(stock.filter(item => !idsToDelete.includes(item.id)));
       } else {
         // Delete standard item
         const { error } = await supabase
@@ -912,78 +963,141 @@ export default function InventoryModule() {
           {selectedSizeGroup && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-40 p-4 animate-fade-in no-print">
               <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-scale-in">
-                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                  <div className="space-y-1">
+                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-950 to-slate-800 text-white">
+                  <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-1 bg-slate-900 text-white font-mono font-black rounded-lg text-xs uppercase tracking-wider">
+                      <span className="px-2.5 py-1 bg-white text-slate-950 font-mono font-black rounded-lg text-xs uppercase tracking-wider">
                         {selectedProductCode}
                       </span>
-                      <span className="text-slate-300">/</span>
-                      <span className="text-xs font-extrabold text-slate-700">
-                        Nhóm: {selectedSizeGroup.size_set_name}
+                      <span className="text-slate-500">/</span>
+                      <span className="text-sm font-extrabold text-white">
+                        {selectedSizeGroup.size_set_name}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                      <span>{selectedSizeGroup.colorGroups.length} màu</span>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                      <span>Mã hàng: <b className="text-white">{selectedProductCode}</b></span>
                       <span>•</span>
-                      <span className="font-mono font-bold text-slate-900">{selectedSizeGroup.totalQuantity} cái</span>
+                      <span>Tổng màu: <b className="text-white">{selectedSizeGroup.colorGroups.length}</b></span>
+                      <span>•</span>
+                      <span>Nhóm ri: <b className="text-white">{selectedSizeGroup.size_set_name}</b></span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setSelectedSizeGroup(null)}
-                    className="p-1.5 hover:bg-slate-200 text-slate-400 hover:text-slate-600 rounded-xl transition-colors cursor-pointer"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-2xl bg-white px-4 py-2 text-right shadow-sm">
+                      <span className="block text-[10px] font-black uppercase tracking-wider text-slate-500">Tổng số lượng</span>
+                      <span className="font-mono text-2xl font-black text-slate-950">{selectedSizeGroup.totalQuantity}</span>
+                      <span className="ml-1 text-xs font-bold text-slate-500">cái</span>
+                    </div>
+                    <button
+                      onClick={() => setSelectedSizeGroup(null)}
+                      className="p-2 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl transition-colors cursor-pointer"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="p-6 overflow-y-auto flex-1 bg-slate-50/30">
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {selectedSizeGroup.colorGroups.map((group) => (
-                      <button
-                        type="button"
-                        key={`${group.size_set_name}-${group.color}`}
-                        onClick={() => {
-                          setSelectedSizeGroup(null);
-                          setSelectedGroup(group);
-                        }}
-                        className="text-left bg-white border border-slate-200 hover:border-blue-300 hover:shadow-md rounded-2xl p-4 transition-all cursor-pointer group"
+                    {selectedSizeGroup.colorGroups.map((group) => {
+                      const status = getStockStatus(group.totalQuantity);
+                      const menuKey = `${group.size_set_name}-${group.color}`;
+                      const isDarkCard = getColorCardStyle(group.color).includes('bg-slate-900');
+
+                      return (
+                      <div
+                        key={menuKey}
+                        className={`relative text-left border rounded-2xl p-4 transition-all shadow-sm hover:shadow-lg ${getColorCardStyle(group.color)}`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <span className={`inline-flex px-3 py-1 text-[10px] font-bold rounded-lg ${getColorBadgeStyle(group.color)}`}>
                               Màu: {group.color}
                             </span>
-                            <p className="text-[11px] text-slate-500 font-semibold mt-3 uppercase">Tổng tồn màu này</p>
-                            <p className="font-mono text-3xl font-black text-slate-900 mt-0.5">
+                            <p className={`text-[11px] font-semibold mt-3 uppercase ${isDarkCard ? 'text-slate-300' : 'text-slate-500'}`}>Tổng tồn màu này</p>
+                            <p className={`font-mono text-4xl font-black mt-0.5 ${isDarkCard ? 'text-white' : 'text-slate-900'}`}>
                               {group.totalQuantity}
-                              <span className="text-xs font-semibold text-slate-400 ml-1">cái</span>
+                              <span className={`text-xs font-semibold ml-1 ${isDarkCard ? 'text-slate-300' : 'text-slate-500'}`}>cái</span>
                             </p>
                           </div>
-                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-black">
-                            {group.sizes.length} size
-                          </span>
+                          <div className="flex items-start gap-2">
+                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black ${status.className}`}>
+                              {status.label}
+                            </span>
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenColorMenuKey(openColorMenuKey === menuKey ? null : menuKey);
+                                }}
+                                className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${isDarkCard ? 'border-white/20 bg-white/10 text-white hover:bg-white/20' : 'border-slate-200 bg-white/80 text-slate-600 hover:bg-white'}`}
+                                title="Thao tác màu này"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </button>
+                              {openColorMenuKey === menuKey && (
+                                <div className="absolute right-0 top-9 z-20 w-40 rounded-xl border border-slate-200 bg-white p-1.5 text-xs font-bold text-slate-700 shadow-xl">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedSizeGroup(null);
+                                      setSelectedGroup(group);
+                                      setOpenColorMenuKey(null);
+                                    }}
+                                    className="w-full rounded-lg px-3 py-2 text-left hover:bg-slate-50"
+                                  >
+                                    Xem chi tiết
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedSizeGroup(null);
+                                      setSelectedGroup(group);
+                                      setOpenColorMenuKey(null);
+                                    }}
+                                    className="w-full rounded-lg px-3 py-2 text-left hover:bg-slate-50"
+                                  >
+                                    Sửa tồn màu này
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteColorGroupClick(group)}
+                                    className="w-full rounded-lg px-3 py-2 text-left text-red-600 hover:bg-red-50"
+                                  >
+                                    Xoá màu này
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
                         <div className="mt-4 flex flex-wrap gap-1.5">
                           {group.sizes.slice(0, 8).map(size => (
-                            <span key={size.inventory_id} className="px-2 py-1 rounded-lg bg-slate-50 border border-slate-100 text-[10px] font-bold text-slate-700">
-                              Sz {size.size}: {size.quantity}
+                            <span key={size.inventory_id} className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold ${getSizeChipStyle(size.quantity)}`}>
+                              Sz {size.size} · {size.quantity} cái
                             </span>
                           ))}
                           {group.sizes.length > 8 && (
-                            <span className="px-2 py-1 rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500">
+                            <span className="px-2 py-1 rounded-lg bg-white/70 text-[10px] font-bold text-slate-500 border border-slate-200">
                               +{group.sizes.length - 8} size
                             </span>
                           )}
                         </div>
 
-                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-blue-600">
-                          <span>Xem chi tiết size</span>
-                          <span className="group-hover:translate-x-1 transition-transform">&rarr;</span>
-                        </div>
-                      </button>
-                    ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSizeGroup(null);
+                            setSelectedGroup(group);
+                          }}
+                          className={`mt-4 flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-black transition-all cursor-pointer ${isDarkCard ? 'border-white/20 bg-white text-slate-950 hover:bg-slate-100' : 'border-slate-300 bg-white/85 text-slate-800 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700'}`}
+                        >
+                          Xem chi tiết size <span>&rarr;</span>
+                        </button>
+                      </div>
+                    )})}
                   </div>
                 </div>
               </div>
@@ -995,37 +1109,43 @@ export default function InventoryModule() {
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-40 p-4 animate-fade-in no-print">
               <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden animate-scale-in">
                 {/* Modal Header */}
-                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                  <div className="space-y-1">
+                <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-blue-50 to-slate-50">
+                  <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="px-2.5 py-1 bg-slate-900 text-white font-mono font-black rounded-lg text-xs uppercase tracking-wider">
                         {selectedProductCode}
                       </span>
                       <span className="text-slate-300">/</span>
-                      <span className="text-xs font-extrabold text-slate-600">
-                        Nhóm: {selectedGroup.size_set_name}
+                      <span className="text-sm font-extrabold text-slate-800">
+                        {selectedGroup.size_set_name}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-400">Màu sắc:</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] text-slate-500">Mã hàng: <b className="text-slate-900">{selectedProductCode}</b></span>
+                      <span className="text-slate-300">•</span>
+                      <span className="text-[11px] text-slate-500">Nhóm ri: <b className="text-slate-900">{selectedGroup.size_set_name}</b></span>
+                      <span className="text-slate-300">•</span>
                       <span className="px-2 py-0.5 bg-blue-50 text-blue-800 text-[10px] font-bold rounded border border-blue-100">
-                        {selectedGroup.color}
-                      </span>
-                      <span className="text-[11px] text-slate-400 ml-2">Tổng tồn nhóm:</span>
-                      <span className="text-xs font-black text-slate-800 font-mono">
-                        {selectedGroup.totalQuantity} cái
+                        Màu: {selectedGroup.color}
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedGroup(null);
-                      setEditingId(null);
-                    }}
-                    className="p-1.5 hover:bg-slate-200 text-slate-400 hover:text-slate-600 rounded-xl transition-colors cursor-pointer"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-2xl bg-slate-950 px-4 py-2 text-right shadow-sm">
+                      <span className="block text-[10px] font-black uppercase tracking-wider text-slate-300">Tổng số lượng</span>
+                      <span className="font-mono text-2xl font-black text-white">{selectedGroup.totalQuantity}</span>
+                      <span className="ml-1 text-xs font-bold text-slate-300">cái</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedGroup(null);
+                        setEditingId(null);
+                      }}
+                      className="p-1.5 hover:bg-slate-200 text-slate-400 hover:text-slate-600 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Modal Body - Sizes Cards Grid */}
