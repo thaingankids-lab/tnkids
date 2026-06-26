@@ -1,0 +1,120 @@
+type PrintableItem = {
+  product_code?: string;
+  product_name?: string;
+  color?: string;
+  size?: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+  unit_type?: string;
+  note?: string;
+};
+
+type PrintableInvoice = {
+  invoice_code: string;
+  customer_name_snapshot?: string;
+  customer_phone_snapshot?: string;
+  customer_address_snapshot?: string;
+  total_amount: number;
+  sale_date: string;
+  note?: string;
+  items?: PrintableItem[];
+  invoice_items?: PrintableItem[];
+};
+
+interface PrintableDeliveryNoteProps {
+  invoice: PrintableInvoice;
+}
+
+const formatNumber = (value: number) => {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(value) || 0);
+};
+
+const formatVietnameseDate = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const year = date.getFullYear();
+  return `Ngày ${day} tháng ${month} năm ${year}`;
+};
+
+const buildItemName = (item: PrintableItem) => {
+  const name = item.product_name || item.product_code || 'Hàng hóa';
+  const details = [item.color, item.size ? `cỡ ${item.size}` : ''].filter(Boolean).join(', ');
+  return details ? `${name} ${details}` : name;
+};
+
+export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNoteProps) {
+  const items = invoice.items || invoice.invoice_items || [];
+  const oldDebt = 0;
+  const totalPayment = Number(invoice.total_amount || 0) + oldDebt;
+
+  return (
+    <div id="print-area" className="bg-white text-black mx-auto p-4 max-w-[210mm] font-serif text-[12px] leading-snug">
+      <div className="text-center mb-2">
+        <h1 className="text-[16px] font-bold uppercase leading-tight">PHIẾU GIAO HÀNG</h1>
+        <p className="mt-1">Mã HĐ: {invoice.invoice_code}</p>
+      </div>
+
+      <div className="mb-1.5 space-y-1">
+        <p><b>Khách hàng:</b> {invoice.customer_name_snapshot || 'Khách lẻ vãng lai'}</p>
+        <p><b>Địa chỉ:</b> {invoice.customer_address_snapshot || ''}</p>
+        <p><b>Điện Thoại:</b> {invoice.customer_phone_snapshot || ''}</p>
+      </div>
+
+      <table className="w-full border-collapse text-[12px]" style={{ border: '1px solid #555' }}>
+        <thead>
+          <tr>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '46px' }}>STT</th>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555' }}>Tên Hàng</th>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '64px' }}>ĐVT</th>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '82px' }}>SL</th>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '98px' }}>Đơn giá</th>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '98px' }}>Thành tiền</th>
+            <th className="text-center font-bold px-1 py-1" style={{ border: '1px solid #555', width: '112px' }}>Ghi chú</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => (
+            <tr key={`${item.product_code || item.product_name || 'item'}-${index}`}>
+              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{index + 1}</td>
+              <td className="px-1.5 py-1" style={{ border: '1px dotted #777' }}>{buildItemName(item)}</td>
+              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{item.unit_type || 'Ri'}</td>
+              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{formatNumber(item.quantity)}</td>
+              <td className="text-right px-1.5 py-1" style={{ border: '1px dotted #777' }}>{formatNumber(item.unit_price)}</td>
+              <td className="text-right px-1.5 py-1" style={{ border: '1px dotted #777' }}>{formatNumber(item.subtotal)}</td>
+              <td className="px-1 py-1" style={{ border: '1px dotted #777' }}>{item.note || ''}</td>
+            </tr>
+          ))}
+
+          <tr>
+            <td colSpan={6} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Cộng tiền hàng</td>
+            <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(invoice.total_amount)}</td>
+          </tr>
+          <tr>
+            <td colSpan={6} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Nợ cũ</td>
+            <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(oldDebt)}</td>
+          </tr>
+          <tr>
+            <td colSpan={6} className="text-center px-2 py-1" style={{ border: '1px solid #555' }}>Tổng tiền thanh toán</td>
+            <td className="text-right font-bold px-1.5 py-1" style={{ border: '1px solid #555' }}>{formatNumber(totalPayment)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="grid grid-cols-2 mt-5 text-center">
+        <div className="pt-6">
+          <p>Người mua hàng</p>
+          <p>(ký,họ tên)</p>
+        </div>
+        <div>
+          <p className="mb-4">{formatVietnameseDate(invoice.sale_date)}</p>
+          <p>Người bán hàng</p>
+          <p>(ký,họ tên)</p>
+        </div>
+      </div>
+    </div>
+  );
+}
