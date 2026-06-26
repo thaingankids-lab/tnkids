@@ -22,6 +22,20 @@ type PrintableInvoice = {
   invoice_items?: PrintableItem[];
 };
 
+type PrintableRow = {
+  key: string;
+  product_code?: string;
+  product_name?: string;
+  color?: string;
+  sizes: string[];
+  quantityPerSize: number | null;
+  totalPieces: number;
+  unit_price: number;
+  subtotal: number;
+  unit_type?: string;
+  note?: string;
+};
+
 interface PrintableDeliveryNoteProps {
   invoice: PrintableInvoice;
 }
@@ -40,14 +54,78 @@ const formatVietnameseDate = (value: string) => {
   return `Ngày ${day} tháng ${month} năm ${year}`;
 };
 
-const buildItemName = (item: PrintableItem) => {
+const sortSizes = (sizes: string[]) => {
+  return [...sizes].sort((a, b) => {
+    const numA = parseInt(a, 10);
+    const numB = parseInt(b, 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return a.localeCompare(b);
+  });
+};
+
+const compactSizeLabel = (sizes: string[]) => {
+  const sorted = sortSizes(sizes);
+  const numbers = sorted.map(size => parseInt(size, 10));
+  const isNumericRange = numbers.every(value => !isNaN(value))
+    && numbers.every((value, index) => index === 0 || value === numbers[index - 1] + 1);
+
+  if (isNumericRange && sorted.length > 1) {
+    return `${sorted[0]}-${sorted[sorted.length - 1]}`;
+  }
+
+  return sorted.join(', ');
+};
+
+const groupPrintableItems = (items: PrintableItem[]): PrintableRow[] => {
+  const groups: Record<string, PrintableRow> = {};
+
+  items.forEach(item => {
+    const key = [
+      item.product_code || item.product_name || '',
+      item.color || '',
+      item.unit_type || '',
+      item.unit_price || 0
+    ].join('|');
+
+    if (!groups[key]) {
+      groups[key] = {
+        key,
+        product_code: item.product_code,
+        product_name: item.product_name,
+        color: item.color,
+        sizes: [],
+        quantityPerSize: item.quantity,
+        totalPieces: 0,
+        unit_price: item.unit_price,
+        subtotal: 0,
+        unit_type: item.unit_type,
+        note: item.note
+      };
+    }
+
+    if (item.size) groups[key].sizes.push(item.size);
+    groups[key].totalPieces += Number(item.quantity) || 0;
+    groups[key].subtotal += Number(item.subtotal) || 0;
+    if (groups[key].quantityPerSize !== item.quantity) {
+      groups[key].quantityPerSize = null;
+    }
+  });
+
+  return Object.values(groups).map(group => ({
+    ...group,
+    sizes: sortSizes(group.sizes)
+  }));
+};
+
+const buildItemName = (item: PrintableRow) => {
   const name = item.product_name || item.product_code || 'Hàng hóa';
-  const details = [item.color, item.size ? `cỡ ${item.size}` : ''].filter(Boolean).join(', ');
+  const sizeLabel = item.sizes.length > 0 ? `cỡ ${compactSizeLabel(item.sizes)}` : '';
+  const details = [item.color, sizeLabel].filter(Boolean).join(', ');
   return details ? `${name} ${details}` : name;
 };
 
 export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNoteProps) {
-  const items = invoice.items || invoice.invoice_items || [];
+  const items = groupPrintableItems(invoice.items || invoice.invoice_items || []);
   const oldDebt = 0;
   const totalPayment = Number(invoice.total_amount || 0) + oldDebt;
 
@@ -82,7 +160,9 @@ export default function PrintableDeliveryNote({ invoice }: PrintableDeliveryNote
               <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{index + 1}</td>
               <td className="px-1.5 py-1" style={{ border: '1px dotted #777' }}>{buildItemName(item)}</td>
               <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{item.unit_type || 'Ri'}</td>
-              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>{formatNumber(item.quantity)}</td>
+              <td className="text-center px-1 py-1" style={{ border: '1px dotted #777' }}>
+                {formatNumber(item.quantityPerSize !== null && item.sizes.length > 1 ? item.quantityPerSize : item.totalPieces)}
+              </td>
               <td className="text-right px-1.5 py-1" style={{ border: '1px dotted #777' }}>{formatNumber(item.unit_price)}</td>
               <td className="text-right px-1.5 py-1" style={{ border: '1px dotted #777' }}>{formatNumber(item.subtotal)}</td>
               <td className="px-1 py-1" style={{ border: '1px dotted #777' }}>{item.note || ''}</td>
